@@ -44,15 +44,29 @@ int argument_check (int argc, char* input) {
 			}
 		}
 	}
+	return 0; //unsure about this return value maybe greater than 3?
+}
+
+bool valid_use(int argc, char* argv[]) {
+	for (int i = 1 ; i < argc - 1 ; i++) {
+		if (strstr(argv[i],"--") == FALSE) {
+				return FALSE;
+		}
+	}
+	return TRUE;
 }
 
 int main (int argc, char* argv[]) //include some while clause for EOF e.g fgets()
 {
 	char* arguments[3] = {"initialise", "sigfigures", "looping"};
 
-    argc--;
+    argc--; // argc starts at first argument not at ./uqexpr
     char* expression = malloc(sizeof(char**));
-
+	
+	if (argc > 1 && valid_use(argc, argv)) { 
+		fprintf(stderr, "Usage: ./uqexpr [--looping string] [--sigfigures 2..9] [--initialise string] [filename]\n");
+		return 9;
+		}
     if (argc < 1) {			// if no arguments run normal calc 
         printf("No loop variables were found\n");
         scanf("%s", expression);
@@ -74,8 +88,7 @@ int main (int argc, char* argv[]) //include some while clause for EOF e.g fgets(
 				default: break;
 		}
 	
-
-	
+	}
 
 
     return 0;

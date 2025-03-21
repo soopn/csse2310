@@ -6,7 +6,7 @@ CFLAGS = -Wall -pedantic -std=gnu99 -Wextra -g
 
 # Library
 LIBDIR = /local/courses/csse2310/lib
-LDFLAGS = -ltinyexpr -lm
+LDFLAGS = -L$(LIBDIR) -ltinyexpr -lm
 
 # include/dynamic-library-h
 INCLUDEDIR = /local/courses/csse2310/include

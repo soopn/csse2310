@@ -13,7 +13,7 @@ INCLUDEDIR = /local/courses/csse2310/include
 CFLAGS += -I$(INCLUDEDIR)
 
 # Default target
-.DEFAULT_GOAL := uqexpr
+.DEFAULT_GOAL := uqexpr 
 
 # Do not generate
 .PHONY: clean

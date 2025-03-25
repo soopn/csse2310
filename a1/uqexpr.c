@@ -12,6 +12,7 @@
 /* 
 
  * include stuff in while loops that end in continues so it starts back at the first if()
+ * still doesn't read file in normal case with arguments from ./uqexpr
  * should check if --looping has x,%d,%d,%d format
  * need to redo regular calculation bit
  * needs to print out variable as it gets written from stdin
@@ -190,10 +191,13 @@ int main (int argc, char* argv[]) //include some while clause for EOF e.g fgets(
 			}
 		}
 		/* Print out initialised variables */
-		if (vars[0]->name != NULL) {
+		if (vars[0].name != NULL) {
 			printf("Variables:\n");
 			for (int i = 0 ; i < value_array+1 ; i++) { //UNSURE ABOUT THE +1
-				printf("%s = %s\n",vars[i].name, sigfigprint(vars[i].value, sigfigs));	
+				if (vars[i].name != NULL) {	
+					printf("%s = %s\n",vars[i].name, sigfigprint(vars[i].value, sigfigs));	
+				}
+				else {break;}
 			}
 		}	
 		else {
@@ -201,14 +205,17 @@ int main (int argc, char* argv[]) //include some while clause for EOF e.g fgets(
 		}
 		
 		/* Print out loop variables */
-		if (loops[0]->name != NULL) {
+		if (loops[0].name != NULL) {
 			printf("Loop variables:\n");
 			for (int i = 0 ; i < loop_array+1 ; i++) { //UNSURE ABOUT THE +1
-				printf("%s = %s (%s,%s,%s)\n",loops[i].name,
-											  sigfigprint(loops[i].start,sigfigs),
-											  sigfigprint(loops[i].start,sigfigs),
-											  sigfigprint(loops[i].inc,sigfigs),
-											  sigfigprint(loops[i].end,sigfigs));
+				if(loops[i].name != NULL) {	
+					printf("%s = %s (%s,%s,%s)\n",loops[i].name,
+												  sigfigprint(loops[i].start,sigfigs),
+												  sigfigprint(loops[i].start,sigfigs),
+												  sigfigprint(loops[i].inc,sigfigs),
+												  sigfigprint(loops[i].end,sigfigs));
+				}
+				else {break;}
 			}
 		}
 		else {

@@ -11,12 +11,13 @@
 /* LOG */
 /* 
 
- * needs duplicate variable check (ONLY APPLIES TO --looping AND --initialise)
- * needs to print out all variables and loop variables at the end of initialisation
+ * include stuff in while loops that end in continues so it starts back at the first if()
  * should check if --looping has x,%d,%d,%d format
  * need to redo regular calculation bit
+ * needs to print out variable as it gets written from stdin
  * @print
  * @loop
+ * recheck all possible exit states
  																					
  																						*/
 typedef struct {
@@ -31,10 +32,21 @@ typedef struct {
 	double end;
 } loopvar;
 
-double rounding(double value, int sigfigs) {
-	double magnitude = floor(log10(fabs(value)));  
-    double scale = pow(10, sigfigs - 1 - magnitude);
-	return round(value*scale)/scale;
+char* sigfigprint(double result, int sigfigs) {
+	char* outputstr = (char*)(malloc(16*sizeof(char)));
+    int exp = (int)floor(log10(fabs(result)));
+
+    // Compute scaling factor
+    double scale = pow(10, sigfigs - 1 - exp);
+    double rounded = round(result * scale) / scale;
+
+    // Print scientific notation
+    if (exp < sigfigs) {
+        snprintf(outputstr, 16, "%.*f", sigfigs - 1 - exp, rounded);
+    } else {
+        snprintf(outputstr, 16, "%.*e", sigfigs - 1, rounded);
+    }
+	return outputstr;
 }
 
 void printerr(int x) {
@@ -78,14 +90,6 @@ void valid_use (int argc, char* argv[]) {
 }
 
 
-/*
- 
-int valid_expr(char* string, te_variable vars[]) {
-	int errPos;
-	te_expr* expr = te_compile; // incomplete
-}
-													*/
-
 int main (int argc, char* argv[]) //include some while clause for EOF e.g fgets()
 {
 
@@ -110,7 +114,7 @@ int main (int argc, char* argv[]) //include some while clause for EOF e.g fgets(
 	te_variable *te_vars = malloc(init_count * sizeof(te_variable));
 	
 	// for loop variables
-	loopvar *loops = malloc(sizeof(loopvar)); // NO free()
+	loopvar *loops = malloc(loop_count * sizeof(loopvar)); // NO free()
 
 //---------------------------------------------------------------------------------------------------------//
 
@@ -185,8 +189,35 @@ int main (int argc, char* argv[]) //include some while clause for EOF e.g fgets(
 				}
 			}
 		}
+		/* Print out initialised variables */
+		if (vars[0]->name != NULL) {
+			printf("Variables:\n");
+			for (int i = 0 ; i < value_array+1 ; i++) { //UNSURE ABOUT THE +1
+				printf("%s = %s\n",vars[i].name, sigfigprint(vars[i].value, sigfigs));	
+			}
+		}	
+		else {
+			printf("No variables were identified.\n");
+		}
+		
+		/* Print out loop variables */
+		if (loops[0]->name != NULL) {
+			printf("Loop variables:\n");
+			for (int i = 0 ; i < loop_array+1 ; i++) { //UNSURE ABOUT THE +1
+				printf("%s = %s (%s,%s,%s)\n",loops[i].name,
+											  sigfigprint(loops[i].start,sigfigs),
+											  sigfigprint(loops[i].start,sigfigs),
+											  sigfigprint(loops[i].inc,sigfigs),
+											  sigfigprint(loops[i].end,sigfigs));
+			}
+		}
+		else {
+			printf("No loop variables were found.\n");
+		}
 	}
-	else if (argc == 1) { //put this in the first if() statement?
+//---------------------------------------------------------------------------------------------//	
+	/* Reading filename from arguments */
+	else if (argc == 1) {
 		if (strstr(argv[1],"./")) { //ignore "./" characters
 			char* inputfile = strtok(argv[1],"./");
 			FILE *file = fopen(inputfile, "r");
@@ -237,35 +268,18 @@ int main (int argc, char* argv[]) //include some while clause for EOF e.g fgets(
 				int err;
 				te_expr *expr = te_compile(string, te_vars, value_array, &err);
 
-				if (expr) {
-					if(sigfigs) { //reference GPT
-						double result = rounding(te_eval(expr),sigfigs);
-						double abs_result = fabs(result);
-						int exp = (abs_result == 0) ? 0 : (int)floor(log10(abs_result));
-
-						if (exp < sigfigs) {
-							printf("Result: %.*f\n",sigfigs - 1 - exp, result);
-						}
-						else {
-							printf("Result: %.*e\n",sigfigs - 1, result);
-						}
-
-					}
-					else {
-						double result = te_eval(expr);
-						te_free(expr);
-						printf("Result: %f", result);
-				
-					}
+				if (!expr) {
+					fprintf(stderr, "Invalid command, expression or assignment operation detected\n");	
 				}
 				else {
-					fprintf(stderr, "Invalid command, expression or assignment operation detected\n");	
+					double result = te_eval(expr);
+					printf("Result: %s\n",sigfigprint(result,sigfigs));
 				}
 			}	
 			
 			//invalid file
 			if (file == NULL) {
-				fprintf(stderr,"uqexpr: can't open file \"%s\" for reading",argv[1]);
+				fprintf(stderr,"uqexpr: can't open file \"%s\" for reading\n",argv[1]);
 				//free expressions
 				exit(10);
 			}
@@ -281,7 +295,7 @@ int main (int argc, char* argv[]) //include some while clause for EOF e.g fgets(
 			}
 		}
 		free(expression);
-		fprintf(stdout, "Thank you for using uqexpr!");
+		fprintf(stdout, "Thank you for using uqexpr!\n");
 		exit(0);
     }
 

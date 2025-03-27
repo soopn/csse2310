@@ -19,6 +19,7 @@
  * @print
  * @loop
  * recheck all possible exit states
+ * change printf to fprintf(stdout,...)
  																					
  																						*/
 typedef struct {
@@ -52,13 +53,14 @@ int loopingcheck(double start, double inc, double end) {
 	return 0;
 }
 char* sigfigprint(double result, int sigfigs) {
+
 	char* outputstr = (char*)(malloc(16*sizeof(char)));
     int exp = (int)floor(log10(fabs(result)));
 
     // Compute scaling factor
     double scale = pow(10, sigfigs - 1 - exp);
     double rounded = round(result * scale) / scale;
-
+	 
     // Print scientific notation
     if (exp < sigfigs) {
         snprintf(outputstr, 16, "%.*f", sigfigs - 1 - exp, rounded);
@@ -66,6 +68,16 @@ char* sigfigprint(double result, int sigfigs) {
         snprintf(outputstr, 16, "%.*e", sigfigs - 1, rounded);
     }
 	return outputstr;
+}
+
+int var_count(te_variable *X, char* string, int total) {
+	int tally = 0;
+	for (int i = 0; i < total ; i++) {
+		if(strstr(string,X[i].name)) {
+				tally++;
+		}
+	}
+	return tally;
 }
 
 void printerr(int x) {
@@ -108,6 +120,11 @@ void valid_use (int argc, char* argv[]) {
 	}
 }
 
+void clrstr(char* string) {
+	for (int i = 0 ; i < (int)strlen(string) ; i++) {
+		string[i] = "NULL";
+	}
+}
 
 int main (int argc, char* argv[]) //include some while clause for EOF e.g fgets()
 {
@@ -130,13 +147,13 @@ int main (int argc, char* argv[]) //include some while clause for EOF e.g fgets(
 		}
 	}
 	variable *vars = malloc(init_count * sizeof(variable)); //unsure if i need to cast it to variable* 
-	te_variable *te_vars = malloc(init_count * sizeof(te_variable));
+	te_variable *te_vars = calloc(init_count ,sizeof(te_variable));
 	
 	// for loop variables
-	loopvar *loops = malloc(loop_count * sizeof(loopvar)); // NO free()
+	loopvar *loops = calloc(loop_count , sizeof(loopvar)); // NO free()
 
 //---------------------------------------------------------------------------------------------------------//
-
+/*
 	// command line argument stuff
     char* expression = malloc(sizeof(char*)); //NO free()	
 	if (argc > 1 ) { 
@@ -144,7 +161,7 @@ int main (int argc, char* argv[]) //include some while clause for EOF e.g fgets(
 		for (int i = 1 ; i < argc - 1 ; i++) {		// find which arguments to run (-1 to exclude filename)
 
 			char varname[sizeof(char*)];
-			float val, f1, f2, f3;
+			double val, f1, f2, f3;
 
 			// valid use check e.g blank argument after --initialise, should exit 9, print to stderr
 			if (argv[i+1] == NULL || strstr(argv[i+1],arguments)) {
@@ -154,7 +171,7 @@ int main (int argc, char* argv[]) //include some while clause for EOF e.g fgets(
 			switch(argument_check(argc, argv[i], arguments)) { // 0 = initialise ; 1 = looping ; 2 = sigfigures
 
 				case 0: //initialise variable (declare them in the variable struct first then map them to a te_variable later	
-				if (sscanf(argv[i+1], "%8[^=]=%f",varname,&val) == 2) {
+				if (sscanf(argv[i+1], "%8[^=]=%lf",varname,&val) == 2) {
 					vars[value_array].name = strdup(varname);
 					vars[value_array].value = val; 
 					value_array++;
@@ -172,23 +189,26 @@ int main (int argc, char* argv[]) //include some while clause for EOF e.g fgets(
 				}
 				//store in array [var,start,inc,end]
 				
-				if (sscanf(argv[i+1],"%8[^,]%f,%f,%f",varname,&f1,&f2,&f3)) {
-					printerr(6);
+				if (sscanf(argv[i+1],"%8[^,]%lf,%lf,%lf",varname,&f1,&f2,&f3)) {
+					if (loopingcheck(f1,f2,f3) == 1) {
+						loops[loop_array].name  = strdup(varname);
+						loops[loop_array].start = f1;
+						loops[loop_array].inc = f2;
+						loops[loop_array].end = f3; 
+						loop_array++;	
+						break;
+					}
 				}
-				if (loopingcheck == 1) {
-					loops[loop_array].name  = strdup(varname);
-					loops[loop_array].start = f1;
-					loops[loop_array].inc = f2;
-					loops[loop_array].end = f3; 
-					loop_array++;	
+				else {
+					printerr(6); 
 					break;
 				}
-				else {printerr(6);}
+				break;
 //-----------------------------------------------------------------------------------------------------------------//
-				case 2: /*sig figures */
+				case 2: //sig figures 
 				if (strlen(argv[i+1]) == 1) {
 					sigfigs = argv[i+1][1];	
-					if (sigfigs == 1 || isdigit(argv[i+1]) == 0 || strlen(argv[i+1] != 1 )) {
+					if (sigfigs == 1 || isdigit(argv[i+1]) == 0 || strlen(argv[i+1]) != 1 ) {
 						printerr(9);
 					}
 					break;
@@ -198,11 +218,11 @@ int main (int argc, char* argv[]) //include some while clause for EOF e.g fgets(
 			}
 //---------------------------------------------------------------------------------------------------------------//
 			if (i == argc - 1) { //reaches filename
-				FILE inputfile = fopenf(argv[i], "r");
+				FILE *inputfile = fopen(argv[i], "r");
 				//RUN STUFF ON FILE
 			}
 		}
-		/* mapping variable to te_variable */
+		// mapping variable to te_variable 
 		for (int i = 0 ; i < init_count ; i++) {
 			te_variable var = {.name = vars[i].name,
 							   .address = &(vars[i].value),
@@ -210,7 +230,7 @@ int main (int argc, char* argv[]) //include some while clause for EOF e.g fgets(
 							   .context = NULL};
 			te_vars[i] = var;
 		} 
-		/* check for duplicate variables */
+		// check for duplicate variables 
 		for (int i = 0 ; i < init_count || i < loop_count ; i++) {
 			for (int j = 0 ; j < init_count || j < loop_count ; j++) {
 				if (vars[i].name == loops[j].name) {
@@ -219,7 +239,7 @@ int main (int argc, char* argv[]) //include some while clause for EOF e.g fgets(
 				}
 			}
 		}
-		/* Print out initialised variables */
+		// Print out initialised variables 
 		if (vars[0].name != NULL) {
 			printf("Variables:\n");
 			for (int i = 0 ; i < value_array+1 ; i++) { //UNSURE ABOUT THE +1
@@ -233,7 +253,7 @@ int main (int argc, char* argv[]) //include some while clause for EOF e.g fgets(
 			printf("No variables were identified.\n");
 		}
 		
-		/* Print out loop variables */
+		// Print out loop variables 
 		if (loops[0].name != NULL) {
 			printf("Loop variables:\n");
 			for (int i = 0 ; i < loop_array+1 ; i++) { //UNSURE ABOUT THE +1
@@ -252,32 +272,33 @@ int main (int argc, char* argv[]) //include some while clause for EOF e.g fgets(
 		}
 	}
 //---------------------------------------------------------------------------------------------//	
-	/* Reading filename from arguments */
+	// Reading filename from arguments 
 	else if (argc == 1) {
+		FILE *file = NULL;
 		if (strstr(argv[1],"./")) { //ignore "./" characters
 			char* inputfile = strtok(argv[1],"./");
-			FILE *file = fopen(inputfile, "r");
+			file = fopen(inputfile, "r");
 		}
 		else {
 			char* inputfile = argv[1];
-			FILE *file = fopen(inputfile, "r");
+			file = fopen(inputfile, "r");
 		}
 
-		char* string;
-		while (!feof(file)) {
+		char* string = NULL;
+		while (fgetc(file) != EOF) {
 			char* varname;
-			float val;
+			double val;
 
 			fgets(string, sizeof(string), file);
 			//check if string is variable declaration
-			if (sscanf(string, "%8[^=]=%f", varname, &val) == 2) {
+			if (sscanf(string, "%8[^=]=%lf", varname, &val) == 2) {
 			//check if variable already exists
 				int dupe = 0;
 				for (int i = 0 ; i < value_array ; i++) {
 					if (strcmp(vars[i].name,varname) == 1) { //something wrong here
 						vars[i].value = val;
 						dupe = 1;
-						printf("%s = %s", varname, printsigfigs(val,sigfigs));
+						printf("%s = %s", varname, sigfigprint(val,sigfigs));
 						break;
 					}
 					continue;
@@ -293,12 +314,12 @@ int main (int argc, char* argv[]) //include some while clause for EOF e.g fgets(
 					vars[value_array].value = val;
 				//add new variable to array
 					te_variable var = {.name = strdup(varname),
-									   .address = &val,
+									   .address = &(vars[value_array].value),
 									   .type = TE_VARIABLE,
 									   .context = NULL};
 					te_vars[value_array] = var;
 
-					printf("%s = %s",vars[value_array].name,printsigfigs(vars[value_array].value,sigfigs));
+					printf("%s = %s",vars[value_array].name,sigfigprint(vars[value_array].value,sigfigs));
 					continue;
 				}
 			}
@@ -326,18 +347,122 @@ int main (int argc, char* argv[]) //include some while clause for EOF e.g fgets(
 			// run through main?
 		}
 	}
-	else if (argc == 0) {			// if no arguments run normal calc 
+	else*/ if (argc == 0) {			// if no arguments run normal calc 
 		printf("No loop variables were found\n");
-		while (!feof(stdin)) {
-			scanf("%s", expression); //might be better to use fgets()
-			if (expression){
-				printf("Result: %f\n", te_interp(expression,0));
+		while(!feof(stdin)) {
+			char *input = (char*)calloc(32,sizeof(char));
+			char *ditto = (char*)calloc(32,sizeof(char));
+			char *varname = (char*)calloc(32,sizeof(char)); 
+			double val,f1,f2,f3;
+			scanf(" %[^\n]s", input);
+			if (sscanf(input, " %31[a-zA-Z] = %lf",varname,&val) == 2 ) {
+					vars[value_array].name = strdup(varname);
+					vars[value_array].value = val; 
+					te_variable var = {.name = varname,
+									   .address = &(vars[value_array].value),
+									   .type = TE_VARIABLE,
+									   .context = NULL};
+					te_vars[value_array] = var;
+					printf("%s = %lf\n",vars[value_array].name,vars[value_array].value);
+					value_array++;
+					free(input);
+					free(ditto);
+					continue;
 			}
-		}
-		free(expression);
+			else if (sscanf(input, "@range %31[a-zA-Z],%lf,%lf,%lf",varname,&f1,&f2,&f3) == 4) {
+				if (loopingcheck(f1,f2,f3)) {
+					loops[loop_array].name = strdup(varname);
+					loops[loop_array].start = f1;
+					loops[loop_array].inc = f2;
+					loops[loop_array].end = f3;
+					printf("%s = %lf (%lf,%lf,%lf)\n",varname,f1,f1,f2,f3);
+					free(input);
+					free(ditto);
+					continue;
+				}
+			}
+			else if (sscanf(input, " %31[a-zA-Z] = %31[^\n]",varname,ditto) == 2) {
+				if (strstr(ditto,varname)) {
+					for (int i = 0 ; i < value_array ; i++) {
+						if (strcmp(varname, vars[i].name) == 0) {
+							te_expr *expr = te_compile(ditto,te_vars,var_count(te_vars,ditto,value_array),0);
+							if (expr) {
+								vars[i].value = te_eval(expr);
+								te_variable var = {.name = strdup(varname),
+												   .address = &(vars[i].value),
+												   .type = TE_VARIABLE,
+												   .context = NULL};
+								te_vars[i] = var;
+								free(input);
+								free(ditto);
+								printf("%s = %lf\n",varname,vars[i].value);
+								break;	
+							}
+							else {
+							fprintf(stderr,"Invalid command, expression or assignment operation detected\n");	
+							te_free(expr);
+							free(input);
+							free(ditto);
+							break;
+							}
+						}
+					}
+					continue;
+				}
+				else {
+					te_expr *expr = te_compile(ditto,te_vars,var_count(te_vars,ditto,value_array),0);
+					if (expr) {
+						vars[value_array].name = strdup(varname);
+						vars[value_array].value = te_eval(expr); 
+						te_variable var = {.name = varname,
+										   .address = &(vars[value_array].value),
+										   .type = TE_VARIABLE,
+										   .context = NULL};
+						te_vars[value_array] = var;
+						printf("%s = %lf\n",vars[value_array].name,vars[value_array].value);
+						value_array++;
+					}
+					else {
+						fprintf(stderr,"Invalid command, expression or assignment operation detected\n");	
+						te_free(expr);
+						free(input);
+						free(ditto);
+						break;
+					}
+				}
+			}
+						
+			else if (feof(stdin)) {
+					fprintf(stdout, "Thank you for using uqexpr!\n");
+					free(input);
+					free(ditto);
+					continue;
+			}
+			else {
+				int err;
+				te_expr *expr = te_compile(input, te_vars, var_count(te_vars,input,value_array), &err);
+				if (!expr) {
+					fprintf(stderr, "Invalid command, expression or assignment operation detected\n");	
+					printf("%d\n",err);
+					free(input);
+					free(ditto);
+					continue;
+				}
+				else {
+					fprintf(stdout, "Result = %f\n",te_eval(expr));
+					te_free(expr);
+					free(input);
+					free(ditto);
+					continue;
+				}
+			}
+
 		fprintf(stdout, "Thank you for using uqexpr!\n");
+		free(varname);
+		//free(expression);
 		exit(0);
-    }
+		} 
+	}
 
 //te_free()
 	//fclose(file);

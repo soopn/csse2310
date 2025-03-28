@@ -2,7 +2,7 @@
 CC = gcc
 
 # Compiler flags
-CFLAGS = -Wall -pedantic -std=gnu99 -Wextra -g 
+CFLAGS = -Wall -pedantic -std=gnu99 -Wextra 
 
 # Library
 LIBDIR = /local/courses/csse2310/lib

@@ -1,6 +1,12 @@
-26 March circa 8pm
+26 March circa 8pm - interaction with ChatGPT
+
+Prompt
+---------------------------------------------------------------------------------------------------------
 how to edit sscanf(input, "%8[^=]=%lf") to read till the newline and to ignore whitespace
 To modify your sscanf() function to read until the newline (\n) and ignore leading/trailing whitespace, you need to:
+
+Response
+---------------------------------------------------------------------------------------------------------
 ✅ Corrected sscanf() Format
 
 sscanf(input, " %31[^= ] = %lf ", varname, &val);

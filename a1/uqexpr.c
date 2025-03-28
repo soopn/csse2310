@@ -51,7 +51,7 @@ int loopingcheck(double start, double inc, double end)
 char* sigfigprint(double result, int sigfigs)
 {
     char buffer[16];
-    char* outputstr = gcvt(result, 6, buffer);
+    char* outputstr = gcvt(result, 16, buffer);
     // Print scientific notation
     if (sigfigs == 0) {
         return outputstr;
@@ -170,7 +170,7 @@ int main(int argc, char* argv[])
     argc--;
     int init_count = 0;
     int loop_count = 0;
-    char sigfigs = 0;
+    int sigfigs = 0;
     int value_array = 0;
     int loop_array = 0; // still unused
     char* arguments[3] = {"--initialise", "--looping", "--sigfigures"};
@@ -265,6 +265,72 @@ int main(int argc, char* argv[])
                 break;
             }
         }
+// check for duplicate variables
+            for (int i = 0; i < init_count || i < loop_count; i++) {
+                for (int j = i + 1; j < init_count || j < loop_count; j++) {
+                    if (vars[i].name == loops[j].name
+                            || vars[i].name == vars[j].name
+                            || loops[i].name == loops[j].name
+                            || vars[i].name == loops[i].name) {
+                        fprintf(stderr,
+                                "uqexpr: duplicate variables were "
+                                "detected\n");
+                        exit(2);
+                    }
+                }
+            }
+
+            // mapping variable to te_variable
+            for (int i = 0; i < init_count; i++) {
+                te_variable var = {.name = vars[i].name,
+                        .address = &(vars[i].value),
+                        .type = TE_VARIABLE,
+                        .context = NULL};
+                te_vars[i] = var;
+            }
+            for (int j = init_count; j < loop_count; j++) {
+                te_variable var = {.name = loops[loop_array].name,
+                        .address = &(loops[loop_array].start),
+                        .type = TE_VARIABLE,
+                        .context = "LOOP"};
+                te_vars[j] = var;
+                loop_array++;
+            }
+            // Print out initialised variables
+            if (vars[0].name != NULL) {
+                fprintf(stdout, "Variables:\n");
+                for (int i = 0; i < value_array + 1;
+                        i++) { // UNSURE ABOUT THE +1
+                    if (vars[i].name != NULL) {
+                        fprintf(stdout, "%s = %s\n", vars[i].name,
+                                sigfigprint(vars[i].value, sigfigs));
+                    } else {
+                        break;
+                    }
+                }
+            } else {
+                printf("No variables were identified.\n");
+            }
+
+            // Print out loop variables
+            if (loops[0].name != NULL) {
+                fprintf(stdout, "Loop variables:\n");
+                for (int i = 0; i < loop_array + 1;
+                        i++) { // UNSURE ABOUT THE +1
+                    if (loops[i].name != NULL) {
+                        fprintf(stdout, "%s = %s (%s,%s,%s)\n", loops[i].name,
+                                sigfigprint(loops[i].start, sigfigs),
+                                sigfigprint(loops[i].start, sigfigs),
+                                sigfigprint(loops[i].inc, sigfigs),
+                                sigfigprint(loops[i].end, sigfigs));
+                    } else {
+                        break;
+                    }
+                }
+            } else {
+                printf("No loop variables were found.\n");
+            }
+
         //---------------------------------------------------------------------------------------------------------------//
         if (strstr(argv[argc], "--") == 0
                 && strstr(argv[argc - 1], "--") == 0) { // reaches filename
@@ -411,72 +477,7 @@ int main(int argc, char* argv[])
                 }
             }
 
-            // check for duplicate variables
-            for (int i = 0; i < init_count || i < loop_count; i++) {
-                for (int j = i + 1; j < init_count || j < loop_count; j++) {
-                    if (vars[i].name == loops[j].name
-                            || vars[i].name == vars[j].name
-                            || loops[i].name == loops[j].name
-                            || vars[i].name == loops[i].name) {
-                        fprintf(stderr,
-                                "uqexpr: duplicate variables were "
-                                "detected\n");
-                        exit(2);
-                    }
-                }
-            }
-
-            // mapping variable to te_variable
-            for (int i = 0; i < init_count; i++) {
-                te_variable var = {.name = vars[i].name,
-                        .address = &(vars[i].value),
-                        .type = TE_VARIABLE,
-                        .context = NULL};
-                te_vars[i] = var;
-            }
-            for (int j = init_count; j < loop_count; j++) {
-                te_variable var = {.name = loops[loop_array].name,
-                        .address = &(loops[loop_array].start),
-                        .type = TE_VARIABLE,
-                        .context = "LOOP"};
-                te_vars[j] = var;
-                loop_array++;
-            }
-            // Print out initialised variables
-            if (vars[0].name != NULL) {
-                fprintf(stdout, "Variables:\n");
-                for (int i = 0; i < value_array + 1;
-                        i++) { // UNSURE ABOUT THE +1
-                    if (vars[i].name != NULL) {
-                        fprintf(stdout, "%s = %s\n", vars[i].name,
-                                sigfigprint(vars[i].value, sigfigs));
-                    } else {
-                        break;
-                    }
-                }
-            } else {
-                printf("No variables were identified.\n");
-            }
-
-            // Print out loop variables
-            if (loops[0].name != NULL) {
-                fprintf(stdout, "Loop variables:\n");
-                for (int i = 0; i < loop_array + 1;
-                        i++) { // UNSURE ABOUT THE +1
-                    if (loops[i].name != NULL) {
-                        fprintf(stdout, "%s = %s (%s,%s,%s)\n", loops[i].name,
-                                sigfigprint(loops[i].start, sigfigs),
-                                sigfigprint(loops[i].start, sigfigs),
-                                sigfigprint(loops[i].inc, sigfigs),
-                                sigfigprint(loops[i].end, sigfigs));
-                    } else {
-                        break;
-                    }
-                }
-            } else {
-                printf("No loop variables were found.\n");
-            }
-            while (!feof(stdin)) {
+                        while (!feof(stdin)) {
                 char* input = (char*)calloc(32, sizeof(char));
                 char* ditto = (char*)calloc(32, sizeof(char));
                 char* varname = (char*)calloc(32, sizeof(char));
@@ -527,10 +528,10 @@ int main(int argc, char* argv[])
                                    varname, &f1, &f2, &f3)
                         == 4) {
                     if (loopingcheck(f1, f2, f3)) {
-                        loops[loop_array + value_array].name = strdup(varname);
-                        loops[loop_array + value_array].start = f1;
-                        loops[loop_array + value_array].inc = f2;
-                        loops[loop_array + value_array].end = f3;
+                        loops[loop_array].name = strdup(varname);
+                        loops[loop_array].start = f1;
+                        loops[loop_array].inc = f2;
+                        loops[loop_array].end = f3;
                         printf("%s = %s (%s,%s,%s)\n", varname,
                                 sigfigprint(f1, sigfigs),
                                 sigfigprint(f1, sigfigs),
@@ -683,6 +684,213 @@ int main(int argc, char* argv[])
                 exit(0);
             }
         }
+		while (!feof(stdin)) {
+                char* input = (char*)calloc(32, sizeof(char));
+                char* ditto = (char*)calloc(32, sizeof(char));
+                char* varname = (char*)calloc(32, sizeof(char));
+                double val, f1, f2, f3;
+                scanf(" %[^\n]s", input);
+                if (sscanf(input, " %24[a-zA-Z] = %lf", varname, &val) == 2) {
+                    // check if variable already exists
+                    int dupe = 0;
+                    for (int i = 0; i < value_array; i++) {
+                        if (strcmp(vars[i].name, varname)
+                                == 1) { // something wrong here
+                            vars[i].value = val;
+                            dupe = 1;
+                            printf("%s = %s\n", varname,
+                                    sigfigprint(val, sigfigs));
+                            break;
+                        }
+                        continue;
+                    }
+
+                    if (dupe == 0) {
+                        // realloc space for new variable
+                        vars = realloc(vars,
+                                (value_array + 1)
+                                        * sizeof(variable)); // might be
+                                                             // redundant
+                        te_vars = realloc(te_vars,
+                                (value_array + 1) * sizeof(te_variable));
+
+                        vars[value_array].name = strdup(varname);
+                        vars[value_array].value = val;
+                        // add new variable to array
+                        te_variable var = {.name = strdup(varname),
+                                .address = &(vars[value_array].value),
+                                .type = TE_VARIABLE,
+                                .context = NULL};
+                        te_vars[value_array] = var;
+
+                        printf("%s = %s\n", vars[value_array].name,
+                                sigfigprint(vars[value_array].value, sigfigs));
+                        free(input);
+                        free(ditto);
+                        value_array++;
+                        continue;
+                    }
+
+                } else if (sscanf(input, "@range %24[a-zA-Z],%lf,%lf,%lf",
+                                   varname, &f1, &f2, &f3)
+                        == 4) {
+                    if (loopingcheck(f1, f2, f3)) {
+                        loops[loop_array].name = strdup(varname);
+                        loops[loop_array].start = f1;
+                        loops[loop_array].inc = f2;
+                        loops[loop_array].end = f3;
+                        printf("%s = %s (%s,%s,%s)\n", varname,
+                                sigfigprint(f1, sigfigs),
+                                sigfigprint(f1, sigfigs),
+                                sigfigprint(f2, sigfigs),
+                                sigfigprint(f3, sigfigs));
+                        te_vars = realloc(te_vars, (sizeof(te_variable) * value_array+loop_array + 1));
+                        te_variable var = {
+                                .name = loops[loop_array + value_array].name,
+                                .address
+                                = &(loops[loop_array + value_array].start),
+                                .type = TE_VARIABLE,
+                                .context = "LOOP"};
+                        te_vars[loop_array + value_array] = var;
+						loop_array++;
+                        free(input);
+                        free(ditto);
+                        continue;
+                    }
+                } else if (sscanf(input, " %24[a-zA-Z] = %63[^\n]", varname,
+                                   ditto)
+                        == 2) {
+                    if (strstr(ditto, varname)) {
+                        for (int i = 0; i < value_array; i++) {
+                            if (strcmp(varname, vars[i].name) == 0) {
+                                te_expr* expr = te_compile(ditto, te_vars,
+                                        var_count(te_vars, ditto, value_array),
+                                        0);
+                                if (expr) {
+                                    vars[i].value = te_eval(expr);
+                                    te_variable var = {.name = strdup(varname),
+                                            .address = &(vars[i].value),
+                                            .type = TE_VARIABLE,
+                                            .context = NULL};
+                                    te_vars[i] = var;
+                                    free(input);
+                                    free(ditto);
+                                    printf("%s = %s\n", varname,
+                                            sigfigprint(
+                                                    vars[i].value, sigfigs));
+                                    break;
+                                } else {
+                                    fprintf(stderr,
+                                            "Invalid command, expression "
+                                            "or assignment operation "
+                                            "detected\n");
+                                    te_free(expr);
+                                    free(input);
+                                    free(ditto);
+                                    break;
+                                }
+                            }
+                        }
+                        continue;
+                    } else if (strcmp(input, "print") == 1) {
+                        funcprint(
+                                vars, loops, value_array, loop_array, sigfigs);
+                    } else if (sscanf(input, "@loop %24[a-zA-Z] = %65[^\n] ",
+                                       varname, ditto)) {
+                        int tally = 0;
+                        for (int x = 0; x < value_array + loop_array; x++) {
+                            if (x <= value_array) {
+                                te_variable var = {.name = vars[x].name,
+                                        .address = &(vars[x].value),
+                                        .type = TE_VARIABLE,
+                                        .context = NULL};
+                                te_vars[x] = var;
+                            }
+                            if (x > value_array) {
+                                te_variable var = {.name = loops[tally].name,
+                                        .address = &(loops[tally].start),
+                                        .type = TE_VARIABLE,
+                                        .context = "LOOP"};
+                                te_vars[x] = var;
+                                tally++;
+								loop_array++;
+                            }
+                        }
+                        funcloop(varname, ditto, te_vars, loops, value_array,
+                                loop_array, sigfigs);
+                    }
+
+                    else {
+                        te_expr* expr = te_compile(ditto, te_vars,
+                                var_count(te_vars, ditto, value_array), 0);
+                        if (expr) {
+                            vars[value_array].name = strdup(varname);
+                            vars[value_array].value = te_eval(expr);
+                            te_variable var = {.name = varname,
+                                    .address = &(vars[value_array].value),
+                                    .type = TE_VARIABLE,
+                                    .context = NULL};
+                            te_vars[value_array] = var;
+                            printf("%s = %s\n", vars[value_array].name,
+                                    sigfigprint(
+                                            vars[value_array].value, sigfigs));
+                            value_array++;
+                            continue;
+                        } else {
+                            fprintf(stderr,
+                                    "Invalid command, expression or "
+                                    "assignment operation detected\n");
+                            te_free(expr);
+                            free(input);
+                            free(ditto);
+                            continue;
+                        }
+                    }
+                }
+
+                else if (feof(stdin)) {
+                    fprintf(stdout, "Thank you for using uqexpr!\n");
+                    free(input);
+                    free(ditto);
+                    continue;
+                } else if (strcmp(input, "@print") == 0) {
+                    funcprint(vars, loops, value_array, loop_array, sigfigs);
+                    continue;
+                } else if (sscanf(input, "@loop %24[a-zA-Z] = %65[^\n] ",
+                                   varname, ditto)) {
+                    funcloop(varname, ditto, te_vars, loops, value_array,
+                            loop_array, sigfigs);
+                    continue;
+                }
+
+                else {
+                    int err;
+                    te_expr* expr = te_compile(input, te_vars,
+                            var_count(te_vars, input, value_array), &err);
+                    if (!expr) {
+                        fprintf(stderr,
+                                "Invalid command, expression or assignment "
+                                "operation detected\n");
+                        fprintf(stderr, "%d\n", err);
+                        free(input);
+                        free(ditto);
+                        continue;
+                    } else {
+                        fprintf(stdout, "Result = %s\n",
+                                sigfigprint(te_eval(expr), sigfigs));
+                        te_free(expr);
+                        free(input);
+                        free(ditto);
+                        continue;
+                    }
+                }
+
+                fprintf(stdout, "Thank you for using uqexpr!\n");
+                free(varname);
+                // free(expression);
+                exit(0);
+            }
+
     }
     //---------------------------------------------------------------------------------------------//
     // Reading filename from arguments

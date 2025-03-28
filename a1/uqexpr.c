@@ -209,7 +209,7 @@ int main(int argc, char* argv[])
 
             case 0: // initialise variable (declare them in the variable struct
                     // first then map them to a te_variable later
-                if (sscanf(argv[i + 1], " %24[a-zA-Z] = %lf", varname, &val)
+                if (sscanf(argv[i + 1], " %24[a-zA-Z] = %lf", varname, &val) //code modified by ChatGPT
                         == 2) {
                     vars[value_array].name = strdup(varname);
                     vars[value_array].value = val;

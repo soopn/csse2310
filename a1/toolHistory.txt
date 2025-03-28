@@ -1,0 +1,325 @@
+26 March circa 8pm
+how to edit sscanf(input, "%8[^=]=%lf") to read till the newline and to ignore whitespace
+To modify your sscanf() function to read until the newline (\n) and ignore leading/trailing whitespace, you need to:
+✅ Corrected sscanf() Format
+
+sscanf(input, " %31[^= ] = %lf ", varname, &val);
+
+🛠 Explanation of Fixes
+
+    " %31[^= ] "
+
+        " %31[^= ]" Skips leading whitespace (" ") before capturing the variable name.
+
+        Reads up to 31 characters (instead of just 8) to avoid truncation.
+
+        Stops at = or a space.
+
+    "= %lf "
+
+        The "= " ignores spaces before the = sign.
+
+        %lf reads the floating-point number while skipping spaces.
+
+        The trailing " " ensures any whitespace after the number is ignored.
+
+🔥 Full Code Example
+
+char varname[32];
+double val;
+
+if (sscanf(input, " %31[^= ] = %lf ", varname, &val) == 2) {
+    printf("Variable: %s, Value: %lf\n", varname, val);
+} else {
+    printf("Invalid input format!\n");
+}
+
+🎯 Example Inputs & Outputs
+Input	Output
+" x = 5.2 "	Variable: x, Value: 5.200000
+" myVar=10.5 "	Variable: myVar, Value: 10.500000
+"testVar = 3.14"	Variable: testVar, Value: 3.140000
+"=100"	Invalid input format!
+✅ Fix Summary
+
+    Handles leading/trailing spaces.
+
+    Reads until newline.
+
+    Allows longer variable names.
+
+    Works even if spaces surround =.
+
+🚀 Try it and let me know if you need further adjustments!
+
+26 March circa 8pm
+how to edit sscanf(input, "%8[^=]=%lf") to read till the newline and to ignore whitespace
+To modify your sscanf() function to read until the newline (\n) and ignore leading/trailing whitespace, you need to:
+✅ Corrected sscanf() Format
+
+sscanf(input, " %31[^= ] = %lf ", varname, &val);
+
+🛠 Explanation of Fixes
+
+    " %31[^= ] "
+
+	        " %31[^= ]" Skips leading whitespace (" ") before capturing the variable name.
+
+			        Reads up to 31 characters (instead of just 8) to avoid truncation.
+
+					        Stops at = or a space.
+
+							    "= %lf "
+
+								        The "= " ignores spaces before the = sign.
+
+										        %lf reads the floating-point number while skipping spaces.
+
+												        The trailing " " ensures any whitespace after the number is ignored.
+
+														🔥 Full Code Example
+
+														char varname[32];
+														double val;
+
+														if (sscanf(input, " %31[^= ] = %lf ", varname, &val) == 2) {
+														    printf("Variable: %s, Value: %lf\n", varname, val);
+															} else {
+															    printf("Invalid input format!\n");
+																}
+
+																🎯 Example Inputs & Outputs
+																Input	Output
+																" x = 5.2 "	Variable: x, Value: 5.200000
+																" myVar=10.5 "	Variable: myVar, Value: 10.500000
+																"testVar = 3.14"	Variable: testVar, Value: 3.140000
+																"=100"	Invalid input format!
+																✅ Fix Summary
+
+																    Handles leading/trailing spaces.
+
+																	    Reads until newline.
+
+																		    Allows longer variable names.
+
+																			    Works even if spaces surround =.
+
+																				🚀 Try it and let me know if you need further adjustments!
+
+																				26 March circa 8pm
+																				how to edit sscanf(input, "%8[^=]=%lf") to read till the newline and to ignore whitespace
+																				To modify your sscanf() function to read until the newline (\n) and ignore leading/trailing whitespace, you need to:
+																				✅ Corrected sscanf() Format
+
+																				sscanf(input, " %31[^= ] = %lf ", varname, &val);
+
+																				🛠 Explanation of Fixes
+
+																				    " %31[^= ] "
+
+																					        " %31[^= ]" Skips leading whitespace (" ") before capturing the variable name.
+
+																							        Reads up to 31 characters (instead of just 8) to avoid truncation.
+
+																									        Stops at = or a space.
+
+																											    "= %lf "
+
+																												        The "= " ignores spaces before the = sign.
+
+																														        %lf reads the floating-point number while skipping spaces.
+
+																																        The trailing " " ensures any whitespace after the number is ignored.
+
+																																		🔥 Full Code Example
+
+																																		char varname[32];
+																																		double val;
+
+																																		if (sscanf(input, " %31[^= ] = %lf ", varname, &val) == 2) {
+																																		    printf("Variable: %s, Value: %lf\n", varname, val);
+																																			} else {
+																																			    printf("Invalid input format!\n");
+																																				}
+
+																																				🎯 Example Inputs & Outputs
+																																				Input	Output
+																																				" x = 5.2 "	Variable: x, Value: 5.200000
+																																				" myVar=10.5 "	Variable: myVar, Value: 10.500000
+																																				"testVar = 3.14"	Variable: testVar, Value: 3.140000
+																																				"=100"	Invalid input format!
+																																				✅ Fix Summary
+
+																																				    Handles leading/trailing spaces.
+
+																																					    Reads until newline.
+
+																																						    Allows longer variable names.
+
+																																							    Works even if spaces surround =.
+
+																																								🚀 Try it and let me know if you need further adjustments!
+
+																																								26 March circa 8pm
+																																								how to edit sscanf(input, "%8[^=]=%lf") to read till the newline and to ignore whitespace
+																																								To modify your sscanf() function to read until the newline (\n) and ignore leading/trailing whitespace, you need to:
+																																								✅ Corrected sscanf() Format
+
+																																								sscanf(input, " %31[^= ] = %lf ", varname, &val);
+
+																																								🛠 Explanation of Fixes
+
+																																								    " %31[^= ] "
+
+																																									        " %31[^= ]" Skips leading whitespace (" ") before capturing the variable name.
+
+																																											        Reads up to 31 characters (instead of just 8) to avoid truncation.
+
+																																													        Stops at = or a space.
+
+																																															    "= %lf "
+
+																																																        The "= " ignores spaces before the = sign.
+
+																																																		        %lf reads the floating-point number while skipping spaces.
+
+																																																				        The trailing " " ensures any whitespace after the number is ignored.
+
+																																																						🔥 Full Code Example
+
+																																																						char varname[32];
+																																																						double val;
+
+																																																						if (sscanf(input, " %31[^= ] = %lf ", varname, &val) == 2) {
+																																																						    printf("Variable: %s, Value: %lf\n", varname, val);
+																																																							} else {
+																																																							    printf("Invalid input format!\n");
+																																																								}
+
+																																																								🎯 Example Inputs & Outputs
+																																																								Input	Output
+																																																								" x = 5.2 "	Variable: x, Value: 5.200000
+																																																								" myVar=10.5 "	Variable: myVar, Value: 10.500000
+																																																								"testVar = 3.14"	Variable: testVar, Value: 3.140000
+																																																								"=100"	Invalid input format!
+																																																								✅ Fix Summary
+
+																																																								    Handles leading/trailing spaces.
+
+																																																									    Reads until newline.
+
+																																																										    Allows longer variable names.
+
+																																																											    Works even if spaces surround =.
+
+																																																												🚀 Try it and let me know if you need further adjustments!
+
+																																																												26 March circa 8pm
+																																																												how to edit sscanf(input, "%8[^=]=%lf") to read till the newline and to ignore whitespace
+																																																												To modify your sscanf() function to read until the newline (\n) and ignore leading/trailing whitespace, you need to:
+																																																												✅ Corrected sscanf() Format
+
+																																																												sscanf(input, " %31[^= ] = %lf ", varname, &val);
+
+																																																												🛠 Explanation of Fixes
+
+																																																												    " %31[^= ] "
+
+																																																													        " %31[^= ]" Skips leading whitespace (" ") before capturing the variable name.
+
+																																																															        Reads up to 31 characters (instead of just 8) to avoid truncation.
+
+																																																																	        Stops at = or a space.
+
+																																																																			    "= %lf "
+
+																																																																				        The "= " ignores spaces before the = sign.
+
+																																																																						        %lf reads the floating-point number while skipping spaces.
+
+																																																																								        The trailing " " ensures any whitespace after the number is ignored.
+
+																																																																										🔥 Full Code Example
+
+																																																																										char varname[32];
+																																																																										double val;
+
+																																																																										if (sscanf(input, " %31[^= ] = %lf ", varname, &val) == 2) {
+																																																																										    printf("Variable: %s, Value: %lf\n", varname, val);
+																																																																											} else {
+																																																																											    printf("Invalid input format!\n");
+																																																																												}
+
+																																																																												🎯 Example Inputs & Outputs
+																																																																												Input	Output
+																																																																												" x = 5.2 "	Variable: x, Value: 5.200000
+																																																																												" myVar=10.5 "	Variable: myVar, Value: 10.500000
+																																																																												"testVar = 3.14"	Variable: testVar, Value: 3.140000
+																																																																												"=100"	Invalid input format!
+																																																																												✅ Fix Summary
+
+																																																																												    Handles leading/trailing spaces.
+
+																																																																													    Reads until newline.
+
+																																																																														    Allows longer variable names.
+
+																																																																															    Works even if spaces surround =.
+
+																																																																																🚀 Try it and let me know if you need further adjustments!
+
+																																																																																26 March circa 8pm
+																																																																																how to edit sscanf(input, "%8[^=]=%lf") to read till the newline and to ignore whitespace
+																																																																																To modify your sscanf() function to read until the newline (\n) and ignore leading/trailing whitespace, you need to:
+																																																																																✅ Corrected sscanf() Format
+
+																																																																																sscanf(input, " %31[^= ] = %lf ", varname, &val);
+
+																																																																																🛠 Explanation of Fixes
+
+																																																																																    " %31[^= ] "
+
+																																																																																	        " %31[^= ]" Skips leading whitespace (" ") before capturing the variable name.
+
+																																																																																			        Reads up to 31 characters (instead of just 8) to avoid truncation.
+
+																																																																																					        Stops at = or a space.
+
+																																																																																							    "= %lf "
+
+																																																																																								        The "= " ignores spaces before the = sign.
+
+																																																																																										        %lf reads the floating-point number while skipping spaces.
+
+																																																																																												        The trailing " " ensures any whitespace after the number is ignored.
+
+																																																																																														🔥 Full Code Example
+
+																																																																																														char varname[32];
+																																																																																														double val;
+
+																																																																																														if (sscanf(input, " %31[^= ] = %lf ", varname, &val) == 2) {
+																																																																																														    printf("Variable: %s, Value: %lf\n", varname, val);
+																																																																																															} else {
+																																																																																															    printf("Invalid input format!\n");
+																																																																																																}
+
+																																																																																																🎯 Example Inputs & Outputs
+																																																																																																Input	Output
+																																																																																																" x = 5.2 "	Variable: x, Value: 5.200000
+																																																																																																" myVar=10.5 "	Variable: myVar, Value: 10.500000
+																																																																																																"testVar = 3.14"	Variable: testVar, Value: 3.140000
+																																																																																																"=100"	Invalid input format!
+																																																																																																✅ Fix Summary
+
+																																																																																																    Handles leading/trailing spaces.
+
+																																																																																																	    Reads until newline.
+
+																																																																																																		    Allows longer variable names.
+
+																																																																																																			    Works even if spaces surround =.
+
+																																																																																																				🚀 Try it and let me know if you need further adjustments!
+
+

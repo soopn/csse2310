@@ -122,23 +122,28 @@ void funcprint(
         variable* vars, loopvar* loop, int varnum, int loopnum, int sigfigs)
 {
     if (vars[0].name != NULL) {
+	fprintf(stdout,"Variables:\n");
         for (int i = 0; i < varnum; i++) {
             fprintf(stdout, "%s = %s\n", vars[i].name,
                     sigfigprint(vars[i].value, sigfigs));
         }
     } else {
-        fprintf(stdout, "No variables were identified.");
+        fprintf(stdout, "No variables were identified.\n");
     }
 
     if (loop[0].name != NULL) {
-        for (int i = 0; i < loopnum; i++) {
-            fprintf(stdout, "%s = %s (%s,%s,%s)", loop[i].name,
+		fprintf(stdout,"Loop Variables:\n");
+        for (int i = 0; i < loopnum+varnum; i++) {
+            fprintf(stdout, "%s = %s (%s,%s,%s)\n", loop[i].name,
                     sigfigprint(loop[i].start, sigfigs),
                     sigfigprint(loop[i].start, sigfigs),
                     sigfigprint(loop[i].inc, sigfigs),
                     sigfigprint(loop[i].end, sigfigs));
         }
     }
+	else {
+		fprintf(stdout, "No loop variables were found.\n");
+	}
 }
 
 //@loop x "expression"
@@ -150,7 +155,7 @@ void funcloop(char* Var, char* eqn, te_variable* vars, loopvar* loop,
         do {
             te_expr* expr
                     = te_compile(eqn, vars, var_count(vars, eqn, varnum), 0);
-            fprintf(stdout, "%s = %s when %s = %s", Var,
+            fprintf(stdout, "%s = %s when %s = %s\n", Var,
                     sigfigprint(te_eval(expr), sigfigs), Var,
                     sigfigprint(loop[i].start, sigfigs));
             te_free(expr);
@@ -243,8 +248,8 @@ int main(int argc, char* argv[])
                 } else {
                     printerr(6);
                     break;
-                }
-                break;
+               	}
+				break;
                 //-----------------------------------------------------------------------------------------------------------------//
             case 2: // sig figures
                 if (strlen(argv[i + 1]) == 1) {
@@ -531,7 +536,7 @@ int main(int argc, char* argv[])
                                 sigfigprint(f1, sigfigs),
                                 sigfigprint(f2, sigfigs),
                                 sigfigprint(f3, sigfigs));
-                        te_vars = realloc(te_vars, sizeof(te_vars) + 1);
+                        te_vars = realloc(te_vars, (sizeof(te_variable) * value_array+loop_array + 1));
                         te_variable var = {
                                 .name = loops[loop_array + value_array].name,
                                 .address
@@ -539,6 +544,7 @@ int main(int argc, char* argv[])
                                 .type = TE_VARIABLE,
                                 .context = "LOOP"};
                         te_vars[loop_array + value_array] = var;
+						loop_array++;
                         free(input);
                         free(ditto);
                         continue;
@@ -599,6 +605,7 @@ int main(int argc, char* argv[])
                                         .context = "LOOP"};
                                 te_vars[x] = var;
                                 tally++;
+								loop_array++;
                             }
                         }
                         funcloop(varname, ditto, te_vars, loops, value_array,
@@ -727,7 +734,7 @@ int main(int argc, char* argv[])
                             (value_array + 1) * sizeof(variable)); // might be
                                                                    // redundant
                     te_vars = realloc(
-                            te_vars, (value_array + 1) * sizeof(te_variable));
+                            te_vars, (value_array +loop_array + 22) * sizeof(te_variable));
 
                     vars[value_array].name = strdup(varname);
                     vars[value_array].value = val;
@@ -833,6 +840,7 @@ int main(int argc, char* argv[])
                             .type = TE_VARIABLE,
                             .context = "LOOP"};
                     te_vars[loop_array + value_array] = var;
+					loop_array++;
                     free(input);
                     free(ditto);
                     continue;

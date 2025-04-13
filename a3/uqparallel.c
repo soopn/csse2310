@@ -11,7 +11,7 @@ int main(int argc, char* argv[]) {
 
 	//cmd parsing
 	int c;
-	int optind = 0;
+	int optind = -1;
 	opterr = 0;
 	int fflg=0; int abflg=0; int pflg=0; int mflg=0; int dflg=0;
 	int errflg = 0;
@@ -39,7 +39,7 @@ int main(int argc, char* argv[]) {
 
 			case 'd':	//dryrun
 				dflg++;
-				printf("dryrun\n");
+
 				break;
 
 			case 'p':	//pipe
@@ -61,28 +61,26 @@ int main(int argc, char* argv[]) {
 				break;
 		}
 	}
-	if (optind < 0) {
-		for (int i = 0 ; i < argc ; i++) {
-			if (strcmp(argv[i],"cmd") == 0) { //run cmd on next line
-				printf("cmd");
-				errflg++;
-				continue;
+	for (int i = 0 ; i < argc ; i++) {
+		if (strcmp(argv[i], ":::") == 0) {
+			if (fflg != 0) {
+				cmd_err();
 			}
-			if (strcmp(argv[i], ":::") == 0) {
-				if (fflg != 0) {
-					cmd_err();
-				}
-				else {
-				printf(":::"); // run ::: per-flags on next line
-				errflg++;
-				continue;
-				}
+			else {
+			printf(":::\n"); // run ::: per-task-args on next line
+			errflg++;
+			continue;
 			}
-		}
-		if (errflg == 0) {
-			cmd_err();
 		}
 	}
+	if (!errflg) {
+	cmd_err();
+	}
+	if (pflg && !(!errflg ^ !fflg)) {
+		cmd_err();
+	}
+	
+
 	//if (argc == 1) for ./uqparallel case
 	return 0;
 }
@@ -94,8 +92,7 @@ void cmd_err(){
 /*
 void dryrun(argv) {
 	for (int i = 0 ; i < argc ; i++) {
-
+		
 	}
 }
 */
-

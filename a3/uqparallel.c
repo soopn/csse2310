@@ -10,6 +10,7 @@
 void cmd_err();
 int isnum(char* string);
 int option_index_calc (int optind, int abflg, int pflg, int dflg, int fflg, int mflg);
+void arg_dup_check(int* flags); 
 //char** cmd_array (char* argv[], int argc, struct option options[]); 
 
 
@@ -80,11 +81,12 @@ int main(int argc, char* argv[]) {
 		//do that last and do the :::, finish off with iterating over all the seen arguments and comparing if they came up
 		//store all the new commands in a new array so you can do that with dryrun
 		*/
-
 	}
+	int flg_array[] = {abflg, pflg, dflg, fflg, mflg};
+	arg_dup_check(flg_array);
 
 	optind = option_index_calc(optind, abflg, pflg, dflg, fflg, mflg);
-
+	
 	while (argv[optind] != NULL) {
 		printf("%s\n", argv[optind++]);
 	}
@@ -131,6 +133,15 @@ void dryrun(argv) {
 	}
 }
 */
+void arg_dup_check(int* flags) {
+	for (int i = 0 ; i < 5 ; i++) { // number of flags
+		if (flags[i] > 1) {
+			cmd_err();
+		}
+	}
+	return;
+}
+
 
 int option_index_calc (int optind, int abflg, int pflg, int dflg, int fflg, int mflg) {	
 	optind = (optind < 0) ? 1 : optind;
@@ -145,8 +156,3 @@ int option_index_calc (int optind, int abflg, int pflg, int dflg, int fflg, int 
 	return optind;
 }
 
-
-
-
-
-	

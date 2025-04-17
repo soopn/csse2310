@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <signal.h>
 #include <fcntl.h>
 #include <math.h>
 #include <string.h>
@@ -8,18 +9,29 @@
 #include <getopt.h>
 #include <ctype.h>
 
+typedef struct optindex {
+	int indabort;
+	int indpipe;
+	int inddry;
+	int indfile;
+	int indjob;
+} opt_index;
+
 void cmd_err();
 int isnum(char* string);
 int option_index_calc (int optind, int abflg, int pflg, int dflg, int fflg, int mflg);
 void arg_dup_check(int* flags); 
 char* strcombine(int count, char* strs[]); 
 bool cmd_check (char* cmd, struct option options[]); 
+void dryrun(FILE *file, int fflg, int pflg, int optind, int argc, char* argv[]); 
+char* remove_NL (char* string); 
 
-//char** split_space_not_quote(char *input, int *numtokens);
+// SA_NOCLDSTOP signal so only checks if child dies not if child stops
+// char** split_space_not_quote(char *input, int *numtokens);
+// SIGINT sent to all processes in group
+// KILL is only send to one so it can leave orphans
 
 int main(int argc, char* argv[]) {
-	
-
 
 	/* Possible implementation
 
@@ -29,6 +41,7 @@ int main(int argc, char* argv[]) {
 	 * except for :::
 
 	 * need to account for SIGINT signal
+	 * REMEMBER TO FREE strdup()
 	*/
 
 	//cmd parsing
@@ -39,6 +52,8 @@ int main(int argc, char* argv[]) {
 	int errflg = 0;
 	int argument_count = 0;
 	int maxjobs;
+	opt_index option_index = {.indabort = 0, .indpipe = 0,
+							  .inddry = 0, .indfile = 0, .indjob = 0};
 
 	//option arguments
 	FILE *inputFile = NULL;
@@ -52,17 +67,20 @@ int main(int argc, char* argv[]) {
 		{0, 				0, 					0, 	0}
 	};
 	
-	/*
-	if (!cmd_check(argv[1],options)) {
-		char* inputstr = 
-		*/ //do this later
-
-
-	while ((c = getopt_long(argc, argv, "dpa:m:f:", options, NULL)) != -1) { //reference	https://www.man7.org/linux/man-pages/man3/getopt.3.html 
+	if (cmd_check(argv[1],options)) {
+		int numtokens;
+		char* bufferstr = strcombine(argc,argv); 
+		char** inputcmd = split_space_not_quote(bufferstr, &numtokens); 
+		// returns array of chars like {"./uqparallel" , "--dryrun"}
+		// PROBLEM, ARRAY HAS MAX SIZE TO MALLOC 
+	}
+	// prob should else this whole while statement
+	while ((c = getopt_long(argc, argv, "dpa:m:f:", options, &optind)) != -1) { //reference	https://www.man7.org/linux/man-pages/man3/getopt.3.html 
 		switch (c) {
 			case 'a':	
 				abflg++;
 				printf("abort-on-error\n");
+				option_index.indabort = optind;
 				break;
 			case 'f':
 				fflg++;
@@ -71,18 +89,21 @@ int main(int argc, char* argv[]) {
 					fprintf(stderr, "uqparallel: Cannot open file \"%s\" for reading\n", optarg);
 					exit(2);
 				}
+				option_index.indfile = optind;
 				printf("args-file\n");
 				printf("%s\n",optarg);
 				break;
 
 			case 'd':	//dryrun
 				dflg++;
+				option_index.inddry = optind;
 
 				break;
 
 			case 'p':	//pipe
 				pflg++;
 				printf("pipe\n");
+				option_index.indpipe = optind;
 				break;
 
 			case 'm': 	//maxjobs
@@ -95,6 +116,8 @@ int main(int argc, char* argv[]) {
 					cmd_err();
 				}
 				maxjobs = buffer;
+				option_index.indjob = optind;
+
 				break;
 				
 			case '?':
@@ -115,9 +138,18 @@ int main(int argc, char* argv[]) {
 		//store all the new commands in a new array so you can do that with dryrun
 		*/
 	}
+
+/* DEBUGGING */	
+///////////////////////////////////////////////
+	for (int i = 0 ; i < argc ; i++) {
+		printf("%s ",argv[i]);
+	}
+	printf("\n");
+//////////////////////////////////////////////
+
 	int flg_array[] = {abflg, pflg, dflg, fflg, mflg};
 	arg_dup_check(flg_array);
-
+	optind = -1;
 	optind = option_index_calc(optind, abflg, pflg, dflg, fflg, mflg);
 
 	for (int i = 0 ; i < argc ; i++) {
@@ -139,26 +171,16 @@ int main(int argc, char* argv[]) {
 
 	//actual exectutions
 	//dryrun
-	/*
 	if (dflg) {
-		int print_count = 1;
-
-		if (fflg) {
-			char buffer[50];
-			while (fgets(buffer, sizeof(buffer), inputFile) != NULL) {
-				fprintf(stdout,"%d: %s\n",print_count,buffer);
-				print_count++;
-			}
-		}
-	}
-	*/
-	
+		dryrun(inputFile, fflg, pflg, optind, argc, argv);
+	}	
 
 	//if (argc == 1) for ./uqparallel case
 	return 0;
 }
 
-//-------------------------------------------------------------------------------------------------------------------------//
+														/* Helper Functions */
+//-----------------------------------------------------------------------------------------------------------------------------------------//
 
 void cmd_err(){
 	fprintf(stderr,"Usage: ./uqparallel [--dryrun] [--abort-on-error] [--maxjobs n] [--pipe] [--args-file argument-filename] [cmd [fixed-args ...]] [::: per-task-args ...]\n");
@@ -205,23 +227,51 @@ char* strcombine(int count, char* strs[]) {
 	return buffer;
 }
 
-bool cmd_check (char* cmd, struct option options[]) {
+bool cmd_check (char* cmd, struct option options[]) { // returns true if is a command, false if is an option 
 	for (int i = 0 ; i < 5 ; i++) { //number of possible options
-		if (strstr(cmd,options[i].name)) {
-			return true;
+		if (!strstr(cmd,options[i].name)) {
+			continue;
 		}
+		else {
+			break;
+		}
+		return true;
 	}
 	return false;
 }
 
-void dryrun(FILE file, int fflg, int pflg) {
+void print_array(int size, char* array[]) { // prints array separated by whitespace
+	char* buffer;
+	char* newstr;
+	for (int i = 0 ; i < size ; i++) {
+		buffer = strdup(array[i]);
+		newstr = remove_NL(buffer);	
+		fprintf(stdout, "%s ", newstr);
+		free(buffer);
+	}
+}
+
+char* remove_NL (char* string) {
+	int len = (int)strlen(string);
+	if (string[len-1] == '\n') {
+		string[len-1] = '\0';
+		return string;
+	}
+	else {
+		return string;
+	}
+}
+
+													/* Working Functions */
+//------------------------------------------------------------------------------------------------------------------------------//
+void dryrun(FILE *file, int fflg, int pflg, int optind, int argc, char* argv[]) {
 	int jobnum = 1;
 	char buffer[50];
 	
 	if (fflg){
 		while (fgets(buffer, sizeof(buffer), file) != NULL) {
-			buffer = remove_NL(buffer);
-			fprintf(stdout, "%d: %s", print_count, buffer);
+			char* string = remove_NL(buffer);
+			fprintf(stdout, "%d: %s", jobnum, string);
 
 			if (pflg) {
 				fprintf(stdout, " |\n");
@@ -229,25 +279,25 @@ void dryrun(FILE file, int fflg, int pflg) {
 			else {
 				fprintf(stdout, "\n");
 			}
+			jobnum++;
 		}
 	}
 	else {
-		//need a way to get the arguments after --dryrun
-		//maybe do a max of the optind? and put back &optind in the getopt_long()?
-		//then
-		//while (!feof(stdin))
-		//fgets(buffer, sizeof(buffer), stdin) 
+		char** cmd_array = calloc(argc-optind, sizeof(char*)); //might be unecessary
+		
+		for (int i = 0 ; i < (argc-optind) ; i++) {
+			cmd_array[i] = strdup(argv[optind+i]);
+			printf("%s\n", cmd_array[i]);
+		}
+		while (fgets(buffer, sizeof(buffer), stdin) != NULL) {
+			fprintf(stdout, "%d: ", jobnum);
+			print_array(argc-optind, cmd_array);
+			fprintf(stdout,"%s", buffer);
+			jobnum++;
+		}
+		free(cmd_array);
 	}
+	return; 
 
 }
 
-char* remove_NL (char* string) {
-	int len = (int)strlen(string);
-	if (string[len-1] == "\n") {
-		string[len-1] == NULL;
-		return string;
-	}
-	else {
-		return string;
-	}
-}

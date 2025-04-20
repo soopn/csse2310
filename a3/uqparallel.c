@@ -348,14 +348,15 @@ void argsfile(FILE *file) {
 	int index = 0;
 	int numtokens;
 	int jobcount = count_jobs(file);
-	rewind(file); // because jobcount calls fgets(), go back to start of file
+	rewind(file); // because jobcount calls fgets(), go back to start of file found from fseek() man page from lectures
 
 	char* cmd_array[jobcount]; // stores cmds in array rather than char**
 	char** exec_array[jobcount]; // stores pointers to cmd_array in array
 
 	// GET STRING FROM FILE AND STORE IN ARRAY
 	while (fgets(buffer, sizeof(buffer), file)) {
-		char** cmds = split_space_not_quote(buffer, &numtokens);
+		char* strbuffer = remove_NL(buffer);
+		char** cmds = split_space_not_quote(strbuffer, &numtokens);
 		for (int x = 0 ; x < numtokens; x++) {	
 			cmd_array[x] = cmds[x];
 		}
@@ -364,7 +365,6 @@ void argsfile(FILE *file) {
 		
 		for (int i = 0 ; i < numtokens ; i++) {
 			exec_array[index][i] = strdup(cmd_array[i]);
-			printf("%s",exec_array[index][i]);
 		}
 		index++;
 

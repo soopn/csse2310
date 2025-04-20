@@ -293,16 +293,6 @@ int count_cmd (char** cmdlines) {
 	return tally;
 }
 
-/*
-void spawn_exec_child (int jobnum, char** cmds) {
-	if(!fork()) {
-		printf("CHILD PID %d", getpid());
-		execvp(cmds[0], cmds);
-		fflush(stdout);
-	}
-}
-*/
-
 
 													/* Working Functions */
 //------------------------------------------------------------------------------------------------------------------------------//
@@ -352,14 +342,17 @@ void argsfile(FILE *file) {
 
 	char* cmd_array[jobcount]; // stores cmds in array rather than char**
 	char** exec_array[jobcount]; // stores pointers to cmd_array in array
+	int* numtoken_array = calloc(jobcount,sizeof(int)); // store number of args in each command
 
 	// GET STRING FROM FILE AND STORE IN ARRAY
 	while (fgets(buffer, sizeof(buffer), file)) {
 		char* strbuffer = remove_NL(buffer);
 		char** cmds = split_space_not_quote(strbuffer, &numtokens);
+
 		for (int x = 0 ; x < numtokens; x++) {	
 			cmd_array[x] = cmds[x];
 		}
+		numtoken_array[index] = numtokens;
 
 		exec_array[index] = malloc(numtokens * sizeof(char*));
 		
@@ -377,6 +370,7 @@ void argsfile(FILE *file) {
 	for (int i = 0 ; i < jobcount ; i++) {
 		if (!(pids[i] = fork())) {
 			execvp(exec_array[i][0], exec_array[i]);
+			fflush(stdout);
 			exit(78); // UNSURE ABOUT THIS EXIT STATUS
 		}
 	}
@@ -395,10 +389,9 @@ void argsfile(FILE *file) {
 
 	// FREE MEMORY ARRAY
 	for (int i = 0 ; i < jobcount ; i++) {
-		for (int j = 0 ; exec_array[i][j] != NULL ; j++) {
+		for (int j = 0 ; j < numtoken_array[i] ; j++) {
 			free(exec_array[i][j]);
 		}
-		free(exec_array[i]);
 	}
 }
 

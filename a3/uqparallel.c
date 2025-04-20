@@ -355,13 +355,18 @@ void argsfile(FILE *file) {
 		}
 		numtoken_array[index] = numtokens;
 
-		exec_array[index] = malloc((numtokens+1) * sizeof(char*));
-		exec_array[index][numtokens+1] = NULL;
+		exec_array[index] = malloc((numtokens) * sizeof(char*));
 		
 		for (int i = 0 ; i < numtokens ; i++) {
-			exec_array[index][i] = strdup(cmd_array[i]);
+			exec_array[index][i] = strdup(cmd_array[i]); // accepts commands off certain length but not others??????
 		}
+		exec_array[index][numtokens+1] = NULL;
 		index++;
+		
+		// FREE MEMORY (LEADS TO ERROR???)
+		//free(cmds);
+		//free(strbuffer);
+	
 
 	}
 
@@ -387,8 +392,10 @@ void argsfile(FILE *file) {
 			printf("SIGNALLED %d\n", WTERMSIG(status));
 		}
 	}	
+
 	free(pids);
 
+	/*
 	// FREE MEMORY ARRAY
 	for (int i = 0 ; i < jobcount ; i++) {
 		for (int j = 0 ; j < numtoken_array[i] ; j++) {
@@ -396,6 +403,7 @@ void argsfile(FILE *file) {
 		}
 	}
 	//might need to free one more line not sure
+	*/
 }
 
 

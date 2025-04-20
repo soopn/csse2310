@@ -8,6 +8,9 @@
 #include <stdbool.h>
 #include <getopt.h>
 #include <ctype.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 typedef struct optindex {
 	int indabort;
@@ -25,11 +28,15 @@ char* strcombine(int count, char* strs[]);
 bool cmd_check (char* cmd, struct option options[]); 
 void dryrun(FILE *file, int fflg, int pflg, int optind, int argc, char* argv[]); 
 char* remove_NL (char* string); 
+int count_jobs (FILE *file); 
+int count_cmd (char** cmdlines);
+void argsfile(FILE *file); 
 
 // SA_NOCLDSTOP signal so only checks if child dies not if child stops
 // char** split_space_not_quote(char *input, int *numtokens);
 // SIGINT sent to all processes in group
 // KILL is only send to one so it can leave orphans
+// TEMPORARY MAGIC NUM = 50
 
 int main(int argc, char* argv[]) {
 
@@ -51,7 +58,7 @@ int main(int argc, char* argv[]) {
 	int fflg=0; int abflg=0; int pflg=0; int mflg=0; int dflg=0;
 	int errflg = 0;
 	int argument_count = 0;
-	int maxjobs;
+	int maxjobs = -1;
 	opt_index option_index = {.indabort = 0, .indpipe = 0,
 							  .inddry = 0, .indfile = 0, .indjob = 0};
 
@@ -90,8 +97,6 @@ int main(int argc, char* argv[]) {
 					exit(2);
 				}
 				option_index.indfile = optind;
-				printf("args-file\n");
-				printf("%s\n",optarg);
 				break;
 
 			case 'd':	//dryrun
@@ -108,8 +113,7 @@ int main(int argc, char* argv[]) {
 
 			case 'm': 	//maxjobs
 				mflg++;
-				printf("maxjobs\n");
-				printf("%s\n",optarg);
+				printf("MAX JOBS: %s\n",optarg);
 
 				int buffer = isnum(optarg);
 				if (buffer < 1 || buffer > 130) { // 1 < n <= 130
@@ -137,6 +141,7 @@ int main(int argc, char* argv[]) {
 		//do that last and do the :::, finish off with iterating over all the seen arguments and comparing if they came up
 		//store all the new commands in a new array so you can do that with dryrun
 		*/
+			
 	}
 
 /* DEBUGGING */	
@@ -169,11 +174,17 @@ int main(int argc, char* argv[]) {
 		cmd_err();
 	}
 
-	//actual exectutions
-	//dryrun
+	// actual exectutions
+	
+	// dryrun
 	if (dflg) {
 		dryrun(inputFile, fflg, pflg, optind, argc, argv);
 	}	
+
+	// run on file
+	if (fflg) {
+		argsfile(inputFile);
+	}
 
 	//if (argc == 1) for ./uqparallel case
 	return 0;
@@ -262,6 +273,37 @@ char* remove_NL (char* string) {
 	}
 }
 
+int count_jobs (FILE *file) {
+	char buffer[50];
+	int lines = 0;
+	while(fgets(buffer, sizeof(buffer), file) != NULL) {
+		lines++;
+	}
+	return lines;
+}
+
+int count_cmd (char** cmdlines) {
+	int i = 0;
+	int tally = 0;
+
+	while (cmdlines[i][0] != NULL) {
+		tally++;
+		i++;
+	}
+	return tally;
+}
+
+/*
+void spawn_exec_child (int jobnum, char** cmds) {
+	if(!fork()) {
+		printf("CHILD PID %d", getpid());
+		execvp(cmds[0], cmds);
+		fflush(stdout);
+	}
+}
+*/
+
+
 													/* Working Functions */
 //------------------------------------------------------------------------------------------------------------------------------//
 void dryrun(FILE *file, int fflg, int pflg, int optind, int argc, char* argv[]) {
@@ -300,4 +342,70 @@ void dryrun(FILE *file, int fflg, int pflg, int optind, int argc, char* argv[]) 
 	return; 
 
 }
+
+void argsfile(FILE *file) {
+	char buffer[50];
+	int index = 0;
+	int numtokens;
+	int jobcount = count_jobs(file);
+	rewind(file); // because jobcount calls fgets(), go back to start of file
+
+	char* cmd_array[jobcount]; // stores cmds in array rather than char**
+	char** exec_array[jobcount]; // stores pointers to cmd_array in array
+
+	// GET STRING FROM FILE AND STORE IN ARRAY
+	while (fgets(buffer, sizeof(buffer), file)) {
+		char** cmds = split_space_not_quote(buffer, &numtokens);
+		for (int x = 0 ; x < numtokens; x++) {	
+			cmd_array[x] = cmds[x];
+		}
+
+		exec_array[index] = malloc(numtokens * sizeof(char*));
+		
+		for (int i = 0 ; i < numtokens ; i++) {
+			exec_array[index][i] = strdup(cmd_array[i]);
+			printf("%s",exec_array[index][i]);
+		}
+		index++;
+
+	}
+
+	// SPAWNING CHILDREN	
+	int status;
+	pid_t* pids = malloc(sizeof(pid_t) * jobcount);
+	
+	for (int i = 0 ; i < jobcount ; i++) {
+		if (!(pids[i] = fork())) {
+			execvp(exec_array[i][0], exec_array[i]);
+			exit(78); // UNSURE ABOUT THIS EXIT STATUS
+		}
+	}
+
+	// WAIT FOR DEATH
+	for (int i = 0 ; i < jobcount ; i++ ) {
+		waitpid(pids[i], &status, 0);
+		if (WIFEXITED(status)) {
+			printf("EXITED WITH STATUS %d\n", WEXITSTATUS(status));
+		}
+		if (WIFSIGNALED(status)) {
+			printf("SIGNALLED %d\n", WTERMSIG(status));
+		}
+	}	
+	free(pids);
+
+	// FREE MEMORY ARRAY
+	for (int i = 0 ; i < jobcount ; i++) {
+		for (int j = 0 ; exec_array[i][j] != NULL ; j++) {
+			free(exec_array[i][j]);
+		}
+		free(exec_array[i]);
+	}
+}
+
+
+
+
+
+
+
 

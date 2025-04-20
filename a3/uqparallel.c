@@ -150,6 +150,7 @@ int main(int argc, char* argv[]) {
 		printf("%s ",argv[i]);
 	}
 	printf("\n");
+	printf("\n");
 //////////////////////////////////////////////
 
 	int flg_array[] = {abflg, pflg, dflg, fflg, mflg};
@@ -340,7 +341,7 @@ void argsfile(FILE *file) {
 	int jobcount = count_jobs(file);
 	rewind(file); // because jobcount calls fgets(), go back to start of file found from fseek() man page from lectures
 
-	char* cmd_array[jobcount]; // stores cmds in array rather than char**
+	char** cmd_array = malloc(jobcount * sizeof(char*)); // stores cmds in array rather than char**
 	char** exec_array[jobcount]; // stores pointers to cmd_array in array
 	int* numtoken_array = calloc(jobcount,sizeof(int)); // store number of args in each command
 
@@ -349,12 +350,13 @@ void argsfile(FILE *file) {
 		char* strbuffer = remove_NL(buffer);
 		char** cmds = split_space_not_quote(strbuffer, &numtokens);
 
-		for (int x = 0 ; x < numtokens; x++) {	
+		for (int x = 0 ; x < numtokens+1; x++) {	
 			cmd_array[x] = cmds[x];
 		}
 		numtoken_array[index] = numtokens;
 
-		exec_array[index] = malloc(numtokens * sizeof(char*));
+		exec_array[index] = malloc((numtokens+1) * sizeof(char*));
+		exec_array[index][numtokens+1] = NULL;
 		
 		for (int i = 0 ; i < numtokens ; i++) {
 			exec_array[index][i] = strdup(cmd_array[i]);
@@ -369,7 +371,7 @@ void argsfile(FILE *file) {
 	
 	for (int i = 0 ; i < jobcount ; i++) {
 		if (!(pids[i] = fork())) {
-			execvp(exec_array[i][0], exec_array[i]);
+			execvp(exec_array[i][0], exec_array[i]); 
 			fflush(stdout);
 			exit(78); // UNSURE ABOUT THIS EXIT STATUS
 		}
@@ -393,6 +395,7 @@ void argsfile(FILE *file) {
 			free(exec_array[i][j]);
 		}
 	}
+	//might need to free one more line not sure
 }
 
 

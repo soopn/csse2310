@@ -31,6 +31,7 @@ void dryrun(FILE *file, int fflg, int pflg, int optind, int argc, char* argv[]);
 char* remove_NL (char* string); 
 int count_jobs (FILE *file); 
 int count_cmd (char** cmdlines);
+char** remove_arguments (int argc, char* argv[]); 
 void argsfile(FILE *file); 
 //void no_args(void); 
 char*** per_task (char** argument_array, char** argv,int cmdcount, int argcount); 
@@ -163,10 +164,6 @@ int main(int argc, char* argv[]) {
 	printf("\n");
 //////////////////////////////////////////////
 
-	int flg_array[] = {abflg, pflg, dflg, fflg, mflg};
-	arg_dup_check(flg_array);
-	optind = -1;
-	optind = option_index_calc(optind, abflg, pflg, dflg, fflg, mflg);
 
 	for (int i = 0 ; i < argc ; i++) {
 		if (strcmp(argv[i], ":::") == 0) {
@@ -179,19 +176,36 @@ int main(int argc, char* argv[]) {
 
 			option_index.indpertask = i; // index the location of :::
 			int pertast_args_count = argc - i;	
-			pertask_args = malloc(pertask_args_count * sizeof(char*)); // might need to +1 for null terminator 
+			//pertask_args = malloc(pertask_args_count * sizeof(char*)); // might need to +1 for null terminator 
 			// POPULATE ARRAY OF PERTASK ARGUMENTS
 			for (int j = 0 ; j < argc - pertask_args_count ; j++) {
-				pertask_args[j] = argv[pertask_args_count + 1 - j];
+				//pertask_args[j] = argv[i + 1 - j]; // VERY PROBLEMATIC
 			}
 			continue;
 			}
 		}
 	}
 
+	argv = remove_arguments(argc, argv); // PROBABLE MEMORY LEAK 
+	argc = adjust_argc(argc,argv);
+
+	int flg_array[] = {abflg, pflg, dflg, fflg, mflg};
+	arg_dup_check(flg_array);
+	optind = -1;
+	optind = option_index_calc(optind, abflg, pflg, dflg, fflg, mflg);
+
 	if (pflg && !(!errflg ^ !fflg)) {
 		cmd_err();
 	}
+
+/* DEBUGGING */	
+///////////////////////////////////////////////
+	for (int i = 0 ; i < argc ; i++) {
+		printf("%s ",argv[i]);
+	}
+	printf("\n");
+	printf("\n");
+//////////////////////////////////////////////
 
 														/* Actual Executions */
 //----------------------------------------------------------------------------------------------------------------------------------------//
@@ -319,6 +333,28 @@ int count_cmd (char** cmdlines) {
 	return tally;
 }
 
+char** remove_arguments (int argc, char* argv[]) {
+
+	for (int i = 1 ; i < argc ; i++) {
+		if (strstr(argv[i], ":::")) {
+			while (i != argc) {
+				argv[i] = NULL;
+				i++;
+			}
+		}
+	}
+	return argv;
+}
+
+int adjust_argc (int argc, char* argv[]) {
+	int i;
+	for (i = 0 ; i < argc ; i++) {
+		if (argv[i] == NULL) {
+			break;
+		}
+	}
+	return i;
+}
 
 													/* Working Functions */
 //------------------------------------------------------------------------------------------------------------------------------//

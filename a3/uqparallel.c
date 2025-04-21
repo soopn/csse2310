@@ -18,6 +18,7 @@ typedef struct optindex {
 	int inddry;
 	int indfile;
 	int indjob;
+	int indpertask;
 } opt_index;
 
 void cmd_err();
@@ -31,6 +32,8 @@ char* remove_NL (char* string);
 int count_jobs (FILE *file); 
 int count_cmd (char** cmdlines);
 void argsfile(FILE *file); 
+//void no_args(void); 
+char*** per_task (char** argument_array, char** argv,int cmdcount, int argcount); 
 
 // SA_NOCLDSTOP signal so only checks if child dies not if child stops
 // char** split_space_not_quote(char *input, int *numtokens);
@@ -39,6 +42,10 @@ void argsfile(FILE *file);
 // TEMPORARY MAGIC NUM = 50
 
 int main(int argc, char* argv[]) {
+
+	if (argc == 1) {
+		//no_args();
+	}
 
 	/* Possible implementation
 
@@ -55,11 +62,13 @@ int main(int argc, char* argv[]) {
 	int c;
 	int optind = -1;
 	opterr = 0;
-	int fflg=0; int abflg=0; int pflg=0; int mflg=0; int dflg=0;
+	int fflg=0; int abflg=0; int pflg=0; int mflg=0; int dflg=0; int ptflg=0;
 	int errflg = 0;
 	int argument_count = 0;
 	int maxjobs = -1;
-	opt_index option_index = {.indabort = 0, .indpipe = 0,
+	char** pertask_args = NULL;
+	int pertask_args_count = 0;
+	opt_index option_index = {.indabort = 0, .indpipe = 0, .indpertask = 0,
 							  .inddry = 0, .indfile = 0, .indjob = 0};
 
 	//option arguments
@@ -73,7 +82,8 @@ int main(int argc, char* argv[]) {
 		{"maxjobs", 		required_argument, 	0,	'm'},
 		{0, 				0, 					0, 	0}
 	};
-	
+
+
 	if (cmd_check(argv[1],options)) {
 		int numtokens;
 		char* bufferstr = strcombine(argc,argv); 
@@ -166,6 +176,14 @@ int main(int argc, char* argv[]) {
 			else {
 			printf(":::\n"); // run ::: per-task-args on next line
 			errflg++;
+
+			option_index.indpertask = i; // index the location of :::
+			int pertast_args_count = argc - i;	
+			pertask_args = malloc(pertask_args_count * sizeof(char*)); // might need to +1 for null terminator 
+			// POPULATE ARRAY OF PERTASK ARGUMENTS
+			for (int j = 0 ; j < argc - pertask_args_count ; j++) {
+				pertask_args[j] = argv[pertask_args_count + 1 - j];
+			}
 			continue;
 			}
 		}
@@ -175,16 +193,23 @@ int main(int argc, char* argv[]) {
 		cmd_err();
 	}
 
-	// actual exectutions
-	
+														/* Actual Executions */
+//----------------------------------------------------------------------------------------------------------------------------------------//
 	// dryrun
 	if (dflg) {
 		dryrun(inputFile, fflg, pflg, optind, argc, argv);
 	}	
 
 	// run on file
-	if (fflg) {
+	else if (fflg) {
 		argsfile(inputFile);
+	}
+
+	else if (pflg) {
+	}
+	
+	else {
+		
 	}
 
 	//if (argc == 1) for ./uqparallel case
@@ -274,7 +299,7 @@ char* remove_NL (char* string) {
 	}
 }
 
-int count_jobs (FILE *file) {
+int count_jobs (FILE *file) { // NEEDS TO rewind() BEFORE NEXT fgets() use
 	char buffer[50];
 	int lines = 0;
 	while(fgets(buffer, sizeof(buffer), file) != NULL) {
@@ -316,7 +341,7 @@ void dryrun(FILE *file, int fflg, int pflg, int optind, int argc, char* argv[]) 
 		}
 	}
 	else {
-		char** cmd_array = calloc(argc-optind, sizeof(char*)); //might be unecessary
+		char** cmd_array = malloc((argc-optind) * sizeof(char*)); //might be unecessary
 		
 		for (int i = 0 ; i < (argc-optind) ; i++) {
 			cmd_array[i] = strdup(argv[optind+i]);
@@ -342,7 +367,7 @@ void argsfile(FILE *file) {
 	rewind(file); // because jobcount calls fgets(), go back to start of file found from fseek() man page from lectures
 
 	char** cmd_array = malloc(jobcount * sizeof(char*)); // stores cmds in array rather than char**
-	char** exec_array[jobcount]; // stores pointers to cmd_array in array
+	char** exec_array[jobcount+1]; // stores pointers to cmd_array in array
 	int* numtoken_array = calloc(jobcount,sizeof(int)); // store number of args in each command
 
 	// GET STRING FROM FILE AND STORE IN ARRAY
@@ -355,10 +380,10 @@ void argsfile(FILE *file) {
 		}
 		numtoken_array[index] = numtokens;
 
-		exec_array[index] = malloc((numtokens) * sizeof(char*));
+		exec_array[index] = malloc((numtokens+1) * sizeof(char*)+ sizeof(int)); //unsure about this one but meant to include null terminator
 		
 		for (int i = 0 ; i < numtokens ; i++) {
-			exec_array[index][i] = strdup(cmd_array[i]); // accepts commands off certain length but not others??????
+			exec_array[index][i] = strdup(cmd_array[i]); 
 		}
 		exec_array[index][numtokens+1] = NULL;
 		index++;
@@ -393,23 +418,122 @@ void argsfile(FILE *file) {
 		}
 	}	
 
-	free(pids);
-
-	/*
 	// FREE MEMORY ARRAY
 	for (int i = 0 ; i < jobcount ; i++) {
-		for (int j = 0 ; j < numtoken_array[i] ; j++) {
-			free(exec_array[i][j]);
-		}
+		free(exec_array[i]);
 	}
 	//might need to free one more line not sure
-	*/
+	
+	// FREEING MEMORY 
+	free(pids);
+	free(cmd_array);
+	free(numtoken_array);
+
 }
 
+// MEANT TO RUN EACH OF THE TASKS GIVEN BY STDIN, IN PARALLEL
+/* POSSIBLE IMPLEMENTATION 
+ * 
+ * store all commands in array like argsfile
+ * fork and exec
+ * create function to append a char**[] with a char*[]
+ * 
+*/
 
+/*
+void no_args(void) {
+	char buffer[50];
+	int index = 0;
+	int numtokens;
+	int jobcount = 1;
 
+	char** cmd_array = malloc(jobcount * sizeof(char*)); // stores cmds in array rather than char**
+	int* numtoken_array = calloc(jobcount,sizeof(int)); // store number of args in each command
 
+	// GET STRING FROM FILE AND STORE IN ARRAY
+	while (fgets(buffer, sizeof(buffer), stdin)) {
+		char* strbuffer = remove_NL(buffer);
+		char** cmds = split_space_not_quote(strbuffer, &numtokens);
+		
+		if (jobcount > 1) {
+			cmd_array = realloc(cmd_array, jobcount * sizeof(char*));
+		}
+			
 
+		for (int x = 0 ; x < numtokens+1; x++) {	
+			cmd_array[x] = cmds[x];
+		}
+		numtoken_array[index] = numtokens;
+
+		cmd_array[index] = malloc((numtokens+1) * sizeof(char*)+ sizeof(int)); //unsure about this one but meant to include null terminator
+		
+		for (int i = 0 ; i < numtokens ; i++) {
+			exec_array[index][i] = strdup(cmd_array[i]); 
+		}
+		cmd_array[index][numtokens+1] = NULL;
+		index++;
+		
+		// FREE MEMORY (LEADS TO ERROR???)
+		//free(cmds);
+		//free(strbuffer);
+	
+
+	}
+
+	// SPAWNING CHILDREN	
+	int status;
+	pid_t* pids = malloc(sizeof(pid_t) * jobcount);
+	
+	for (int i = 0 ; i < jobcount ; i++) {
+		if (!(pids[i] = fork())) {
+			execvp(exec_array[i][0], exec_array[i]); 
+			fflush(stdout);
+			exit(78); // UNSURE ABOUT THIS EXIT STATUS
+		}
+	}
+
+	// WAIT FOR DEATH
+	for (int i = 0 ; i < jobcount ; i++ ) {
+		waitpid(pids[i], &status, 0);
+		if (WIFEXITED(status)) {
+			printf("EXITED WITH STATUS %d\n", WEXITSTATUS(status));
+		}
+		if (WIFSIGNALED(status)) {
+			printf("SIGNALLED %d\n", WTERMSIG(status));
+		}
+	}	
+
+	// FREE MEMORY ARRAY
+	for (int i = 0 ; i < jobcount ; i++) {
+		free(exec_array[i]);
+	}
+	//might need to free one more line not sure
+	
+	// FREEING MEMORY 
+	free(pids);
+	free(cmd_array);
+	free(numtoken_array);
+	exit(0);
+}
+*/
+
+// returns pointer new array of strings with pertask args appended to them
+char*** per_task (char** argument_array, char** argv,int cmdcount, int argcount) { //make it append the current argv[] with the pertask arguments
+	char*** new_array = malloc(sizeof(char**) * (cmdcount + 2) );	 //include null terminator
+
+	for (int i = 0 ; i < cmdcount+2 ; i++) {
+		new_array[i] = malloc(cmdcount * sizeof(char*));
+	}
+	
+	for (int i = 0 ; i < argcount ; i++) {
+		for (int j = 0 ; j < cmdcount ; j++ ) {
+			new_array[i][j] = strdup(argv[j]);
+		}
+		new_array[i][cmdcount] = argument_array[i];
+		new_array[cmdcount+1] = NULL;
+	}
+	return new_array;
+}
 
 
 

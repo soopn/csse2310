@@ -27,19 +27,22 @@ int option_index_calc (int optind, int abflg, int pflg, int dflg, int fflg, int 
 void arg_dup_check(int* flags); 
 char* strcombine(int count, char* strs[]); 
 bool cmd_check (char* cmd, struct option options[]); 
-void dryrun(FILE *file, int fflg, int pflg, int optind, int argc, char* argv[]); 
+char*** pertask_append (char** argument_array, char** argv,int cmdcount, int argcount); 
+void dryrun(FILE *file, int fflg, int pflg, int optind, int argc, char* argv[], int ptlfg,char** pt_args, int pt_arg_count); 
 char* remove_NL (char* string); 
 int count_jobs (FILE *file); 
 int count_cmd (char** cmdlines);
+int adjust_argc (int argc, char* argv[]);
 char** remove_arguments (int argc, char* argv[]); 
-void argsfile(FILE *file); 
+void argsfile(FILE *file, int pflg); 
 void no_args(void); 
-char*** per_task (char** argument_array, char** argv,int cmdcount, int argcount); 
+void pipeline(char*** command_vector, int cmdcount);
 
 // SA_NOCLDSTOP signal so only checks if child dies not if child stops
 // char** split_space_not_quote(char *input, int *numtokens);
 // SIGINT sent to all processes in group
 // KILL is only send to one so it can leave orphans
+// EMPTY COMMAND LINES SHOULD NOT BE EXECUTED
 // TEMPORARY MAGIC NUM = 50
 
 int main(int argc, char* argv[]) {
@@ -67,8 +70,9 @@ int main(int argc, char* argv[]) {
 	int errflg = 0;
 	int argument_count = 0;
 	int maxjobs = -1;
-	char** pertask_args = NULL;
 	int pertask_args_count = 0;
+	char** pertask_args = NULL;
+	char* filename = NULL;
 	opt_index option_index = {.indabort = 0, .indpipe = 0, .indpertask = 0,
 							  .inddry = 0, .indfile = 0, .indjob = 0};
 
@@ -93,7 +97,7 @@ int main(int argc, char* argv[]) {
 		// PROBLEM, ARRAY HAS MAX SIZE TO MALLOC 
 	}
 	// prob should else this whole while statement
-	while ((c = getopt_long(argc, argv, "dpa:m:f:", options, &optind)) != -1) { //reference	https://www.man7.org/linux/man-pages/man3/getopt.3.html 
+	while ((c = getopt_long_only(argc, argv, "dpa:m:f:", options, &optind)) != -1) { //reference	https://www.man7.org/linux/man-pages/man3/getopt.3.html 
 		switch (c) {
 			case 'a':	
 				abflg++;
@@ -103,28 +107,22 @@ int main(int argc, char* argv[]) {
 			case 'f':
 				fflg++;
 				inputFile = fopen(optarg, "r"); //might have to replace with open() later on	
-				if (!inputFile) {
-					fprintf(stderr, "uqparallel: Cannot open file \"%s\" for reading\n", optarg);
-					exit(2);
-				}
+				filename = strdup(optarg);
 				option_index.indfile = optind;
 				break;
 
 			case 'd':	//dryrun
 				dflg++;
 				option_index.inddry = optind;
-
 				break;
 
 			case 'p':	//pipe
 				pflg++;
-				printf("pipe\n");
 				option_index.indpipe = optind;
 				break;
 
 			case 'm': 	//maxjobs
 				mflg++;
-				printf("MAX JOBS: %s\n",optarg);
 
 				int buffer = isnum(optarg);
 				if (buffer < 1 || buffer > 130) { // 1 < n <= 130
@@ -157,11 +155,15 @@ int main(int argc, char* argv[]) {
 
 /* DEBUGGING */	
 ///////////////////////////////////////////////
+
+/*
 	for (int i = 0 ; i < argc ; i++) {
 		printf("%s ",argv[i]);
 	}
 	printf("\n");
 	printf("\n");
+*/
+
 //////////////////////////////////////////////
 
 
@@ -172,14 +174,15 @@ int main(int argc, char* argv[]) {
 			}
 			else {
 			printf(":::\n"); // run ::: per-task-args on next line
+			ptflg++;
 			errflg++;
 
 			option_index.indpertask = i; // index the location of :::
-			int pertast_args_count = argc - i;	
-			//pertask_args = malloc(pertask_args_count * sizeof(char*)); // might need to +1 for null terminator 
+			pertask_args_count = argc - i - 1;	
+			pertask_args = malloc(pertask_args_count * sizeof(char*)); // might need to +1 for null terminator 
 			// POPULATE ARRAY OF PERTASK ARGUMENTS
-			for (int j = 0 ; j < argc - pertask_args_count ; j++) {
-				//pertask_args[j] = argv[i + 1 - j]; // VERY PROBLEMATIC
+			for (int j = 0 ; j < pertask_args_count ; j++) {
+				pertask_args[j] = strdup(argv[i + 1 + j]); // VERY PROBLEMATIC
 			}
 			continue;
 			}
@@ -192,40 +195,49 @@ int main(int argc, char* argv[]) {
 	int flg_array[] = {abflg, pflg, dflg, fflg, mflg};
 	arg_dup_check(flg_array);
 	optind = -1;
-	optind = option_index_calc(optind, abflg, pflg, dflg, fflg, mflg);
+	optind = option_index_calc(optind, abflg, pflg, dflg, fflg, mflg); // indexes the last option in the cmdline
 
+	// more argument checking
 	if (pflg && !(!errflg ^ !fflg)) {
 		cmd_err();
+	}
+	if (fflg && !inputFile) {
+		fprintf(stderr, "uqparallel: Cannot open file \"%s\" for reading\n", filename);
+		exit(2);
 	}
 
 /* DEBUGGING */	
 ///////////////////////////////////////////////
+/*
 	for (int i = 0 ; i < argc ; i++) {
 		printf("%s ",argv[i]);
 	}
 	printf("\n");
 	printf("\n");
+*/
 //////////////////////////////////////////////
 
 														/* Actual Executions */
 //----------------------------------------------------------------------------------------------------------------------------------------//
 	// dryrun
 	if (dflg) {
-		dryrun(inputFile, fflg, pflg, optind, argc, argv);
+		dryrun(inputFile, fflg, pflg, optind, argc, argv, ptflg, pertask_args, pertask_args_count);
 	}	
 
 	// run on file
 	else if (fflg) {
-		argsfile(inputFile);
+		argsfile(inputFile, pflg);
 	}
 
-	else if (pflg) {
-	}
-	
 	else {
 		no_args();		
 	}
-
+	
+	for (int i = 0 ; i < pertask_args_count ; i++) {
+		free(pertask_args[i]);
+	}
+	free(pertask_args);
+	free(filename);
 	//if (argc == 1) for ./uqparallel case
 	return 0;
 }
@@ -356,6 +368,35 @@ int adjust_argc (int argc, char* argv[]) {
 	return i;
 }
 
+// returns pointer new array of strings with pertask args appended to them
+char*** pertask_append (char** argument_array, char** cmds, int cmdcount, int argcount) { //make it append the current argv[] with the pertask arguments
+	char*** new_array = malloc(argcount * sizeof(char**));	 //include null terminator
+	
+	// ALLOCATE MEMORY 
+	for (int i = 0 ; i < argcount ; i++) {
+		new_array[i] = malloc((cmdcount+2) * sizeof(char*)); // include size for commands and argument and null terminator
+	}
+	
+	for (int i = 0 ; i < argcount ; i++) {
+		for (int j = 0 ; j < cmdcount ; j++ ) {
+			new_array[i][j] = cmds[j];
+		}
+		new_array[i][cmdcount] = argument_array[i];
+		new_array[i][cmdcount+1] = NULL;
+	}
+	return new_array;
+	
+	//THINGS THAT NEED TO BE FREED
+/*
+	for (int i = 0 ; i < argcount ; i++) {
+		for (int j = 0 ; j < cmdcount ; j++) {
+			free(new_array[i][j]);
+		}
+	}
+	free(new_array);
+												*/
+}
+
 void spawn_child_exec (char** cmd) {
 	if (!fork()) {
 		execvp(cmd[0], cmd);
@@ -367,7 +408,7 @@ void spawn_child_exec (char** cmd) {
 }
 													/* Working Functions */
 //------------------------------------------------------------------------------------------------------------------------------//
-void dryrun(FILE *file, int fflg, int pflg, int optind, int argc, char* argv[]) {
+void dryrun(FILE *file, int fflg, int pflg, int optind, int argc, char* argv[], int ptflg, char** pt_args, int pt_arg_count) {
 	int jobnum = 1;
 	char buffer[50];
 	
@@ -382,8 +423,39 @@ void dryrun(FILE *file, int fflg, int pflg, int optind, int argc, char* argv[]) 
 			else {
 				fprintf(stdout, "\n");
 			}
+		jobnum++;
+		}
+	}
+	else if (ptflg) {
+		int cmd_count = argc - optind;
+
+		char*** exec_array = malloc(pt_arg_count * sizeof(char**));
+		char** cmd_array = malloc(cmd_count * sizeof(char*)); 
+
+		// POPULATE ARRAY OF COMMANDS
+		for (int i = 0 ; i < cmd_count ; i++) {
+			cmd_array[i] = strdup(argv[optind+i]);
+		}
+
+		// NEW ARRAY OF APPENDED COMMANDS
+		exec_array = pertask_append(pt_args, cmd_array, cmd_count, pt_arg_count); 
+	
+		while (jobnum != pt_arg_count) {
+			print_array(cmd_count + pt_arg_count, exec_array[jobnum-1]); // smells like a segfault
+			if (pflg) {
+				fprintf(stdout, " |\n");
+			}
+			else {
+				fprintf(stdout, "\n");
+			}
 			jobnum++;
 		}
+
+		for (int i = 0 ; i < cmd_count ; i++) {
+			free(cmd_array[i]);
+		}
+		free(cmd_array);
+		free(exec_array);
 	}
 	else {
 		char** cmd_array = malloc((argc-optind) * sizeof(char*)); //might be unecessary
@@ -404,7 +476,7 @@ void dryrun(FILE *file, int fflg, int pflg, int optind, int argc, char* argv[]) 
 
 }
 
-void argsfile(FILE *file) {
+void argsfile(FILE *file, int pflg) {
 	char buffer[50];
 	int index = 0;
 	int numtokens;
@@ -439,6 +511,17 @@ void argsfile(FILE *file) {
 	
 
 	}
+	if (pflg) {
+		// RUN PIPELINE
+		pipeline(exec_array, jobcount);
+
+		// FREE MEMORY ARRAY
+		for (int i = 0 ; i < jobcount ; i++) {
+			free(exec_array[i]);
+		}
+		return;
+	}
+
 
 	// SPAWNING CHILDREN	
 	int status;
@@ -520,23 +603,64 @@ void no_args(void) {
 	exit(0);
 }
 
-// returns pointer new array of strings with pertask args appended to them
-char*** per_task (char** argument_array, char** argv,int cmdcount, int argcount) { //make it append the current argv[] with the pertask arguments
-	char*** new_array = malloc(sizeof(char**) * (cmdcount + 2) );	 //include null terminator
+// from **cmds[] cmd1 --> cmd2 --> cmd3 --> ... --> stdout
+void pipeline(char*** command_vector, int cmdcount) {
+	int** fds = malloc(cmdcount * sizeof(int*));  
 
-	for (int i = 0 ; i < cmdcount+2 ; i++) {
-		new_array[i] = malloc(cmdcount * sizeof(char*));
+	for (int i = 0 ; i < cmdcount ; i++) {
+		fds[i] = malloc(2 * sizeof(int));
+	}
+
+	// POPULATE PIPES
+	for (int i = 0 ; i < cmdcount ; i++) {
+		if(pipe(fds[i]) < 0) {
+			perror("Creating pipe");
+			exit(1);
+		}
+	}
+
+	for (int i = 0 ; i < cmdcount ; i++) {
+		// PARENT
+		if (fork()){
+			// first command gets ignored
+			if (i != 0) {
+				dup2(fds[i-1][0], STDIN_FILENO);
+			}
+
+			// pipe to next command if not last command
+			if (i != cmdcount - 1) {
+				dup2(fds[i][1], STDOUT_FILENO); 
+			}
+
+			for (int j = 0 ; j < cmdcount - 1;  j++) {
+				close(fds[j][0]);
+				close(fds[j][1]);
+			}
+
+			execvp(command_vector[i][0], command_vector[i]);
+			perror("ERROR IN PIPELINE");
+			exit(99);
+		}
 	}
 	
-	for (int i = 0 ; i < argcount ; i++) {
-		for (int j = 0 ; j < cmdcount ; j++ ) {
-			new_array[i][j] = strdup(argv[j]);
+	// CLOSE ALL PIPES
+	for (int i = 0 ; i < cmdcount - 1 ; i++) {
+		for (int j = 0 ; j < 2 ; j++) {
+			close(fds[i][j]);
 		}
-		new_array[i][cmdcount] = argument_array[i];
-		new_array[cmdcount+1] = NULL;
 	}
-	return new_array;
-}
 
+	// WAIT FOR CHILDREN
+	for (int i = 0 ; i < cmdcount ; i++) {
+		wait(0);
+	}
+
+	// FREE MEMORY
+	for (int i = 0 ; i < cmdcount ; i++) {
+		free(fds[i]);
+	}
+	free(fds);
+	return;
+}
 
 

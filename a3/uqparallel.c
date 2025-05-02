@@ -12,6 +12,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+bool endrt = false;
+
 typedef struct optindex {
 	int indabort;
 	int indpipe;
@@ -21,6 +23,12 @@ typedef struct optindex {
 	int indpertask;
 } opt_index;
 
+typedef struct COMMAND {
+	char** array;
+	int length;
+} COMMAND;
+
+void sigfunc(int s);
 void cmd_err();
 int isnum(char* string);
 int option_index_calc (int optind, int abflg, int pflg, int dflg, int fflg, int mflg);
@@ -33,6 +41,9 @@ char* remove_NL (char* string);
 int count_jobs (FILE *file); 
 int count_cmd (char** cmdlines);
 int adjust_argc (int argc, char* argv[]);
+void spawn_child_exec (char** cmd);
+COMMAND parse_cmd (int argc, char** argv, int optind);
+COMMAND parse_options (int argc, char** argv);
 char** remove_arguments (int argc, char* argv[]); 
 void argsfile(FILE *file, int pflg); 
 void no_args(void); 
@@ -43,6 +54,7 @@ void pipeline(char*** command_vector, int cmdcount);
 // SIGINT sent to all processes in group
 // KILL is only send to one so it can leave orphans
 // EMPTY COMMAND LINES SHOULD NOT BE EXECUTED
+// EMPTY STRING INPUT WITH FIXED ARGS IS IN THE FORMAT ./uqparallel "" [fixed-args...]
 // TEMPORARY MAGIC NUM = 50
 
 int main(int argc, char* argv[]) {
@@ -67,6 +79,7 @@ int main(int argc, char* argv[]) {
 	int optind = -1;
 	opterr = 0;
 	int fflg=0; int abflg=0; int pflg=0; int mflg=0; int dflg=0; int ptflg=0;
+	int cmdflg = 0;
 	int errflg = 0;
 	int argument_count = 0;
 	int maxjobs = -1;
@@ -75,53 +88,63 @@ int main(int argc, char* argv[]) {
 	char* filename = NULL;
 	opt_index option_index = {.indabort = 0, .indpipe = 0, .indpertask = 0,
 							  .inddry = 0, .indfile = 0, .indjob = 0};
+	struct sigaction sa;			// could probably put sighandler after option parsing so if abort-on-error then include SA_NOCLDSTOP
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = sigfunc;
+	sa.sa_flags = SA_RESTART;
+	sigaction(SIGTERM | SIGINT, &sa, 0); // i think
 
 	//option arguments
 	FILE *inputFile = NULL;
 
 	static struct option options[] = {
-		{"abort-on-error", 	no_argument, 		0,	'a'},
-		{"args-file", 		required_argument, 	0,	'f'},
-		{"dryrun", 			no_argument, 		0,	'd'},
-		{"pipe", 			no_argument, 		0,	'p'},
-		{"maxjobs", 		required_argument, 	0,	'm'},
+		{"abort-on-error", 	no_argument, 		0,	'1'},
+		{"args-file", 		required_argument, 	0,	'2'},
+		{"dryrun", 			no_argument, 		0,	'3'},
+		{"pipe", 			no_argument, 		0,	'4'},
+		{"maxjobs", 		required_argument, 	0,	'5'},
 		{0, 				0, 					0, 	0}
 	};
 
 
-	if (argc != 1 && cmd_check(argv[1],options)) {
-		int numtokens;
-		char* bufferstr = strcombine(argc,argv); 
-		char** inputcmd = split_space_not_quote(bufferstr, &numtokens); 
-		// returns array of chars like {"./uqparallel" , "--dryrun"}
-		// PROBLEM, ARRAY HAS MAX SIZE TO MALLOC 
+	if (argc > 1 && cmd_check(argv[1],options)) {
+		
+		if (strcmp(argv[1], "") == 0) {
+			cmd_err();
+		}
+		else {
+			//no_args();	
+		}
 	}
+
+	COMMAND option_array = parse_options(argc, argv); // to only parse -- long options so -a and --abort-on-error dont get mixed up
+
 	// prob should else this whole while statement
-	while ((c = getopt_long_only(argc, argv, "dpa:m:f:", options, &optind)) != -1) { //reference	https://www.man7.org/linux/man-pages/man3/getopt.3.html 
+	while ((c = getopt_long(option_array.length, option_array.array, "dpa:m:f:", options, &optind)) != -1) { //reference	https://www.man7.org/linux/man-pages/man3/getopt.3.html 
 		switch (c) {
-			case 'a':	
+			case '1':	
 				abflg++;
 				printf("abort-on-error\n");
 				option_index.indabort = optind;
 				break;
-			case 'f':
+			case '2':
 				fflg++;
 				inputFile = fopen(optarg, "r"); //might have to replace with open() later on	
 				filename = strdup(optarg);
 				option_index.indfile = optind;
 				break;
 
-			case 'd':	//dryrun
+			case '3':	//dryrun
 				dflg++;
 				option_index.inddry = optind;
 				break;
 
-			case 'p':	//pipe
+			case '4':	//pipe
 				pflg++;
 				option_index.indpipe = optind;
 				break;
 
-			case 'm': 	//maxjobs
+			case '5': 	//maxjobs
 				mflg++;
 
 				int buffer = isnum(optarg);
@@ -173,7 +196,6 @@ int main(int argc, char* argv[]) {
 				cmd_err();
 			}
 			else {
-			printf(":::\n"); // run ::: per-task-args on next line
 			ptflg++;
 			errflg++;
 
@@ -182,7 +204,7 @@ int main(int argc, char* argv[]) {
 			pertask_args = malloc(pertask_args_count * sizeof(char*)); // might need to +1 for null terminator 
 			// POPULATE ARRAY OF PERTASK ARGUMENTS
 			for (int j = 0 ; j < pertask_args_count ; j++) {
-				pertask_args[j] = strdup(argv[i + 1 + j]); // VERY PROBLEMATIC
+				pertask_args[j] = strdup(argv[i + 1 + j]); 
 			}
 			continue;
 			}
@@ -205,6 +227,12 @@ int main(int argc, char* argv[]) {
 		fprintf(stderr, "uqparallel: Cannot open file \"%s\" for reading\n", filename);
 		exit(2);
 	}
+	if (argv[optind+1] != NULL) {
+		if (cmd_check(argv[optind+1], options)) {
+			cmdflg++;
+		}
+	}
+		
 
 /* DEBUGGING */	
 ///////////////////////////////////////////////
@@ -228,11 +256,39 @@ int main(int argc, char* argv[]) {
 	else if (fflg) {
 		argsfile(inputFile, pflg);
 	}
+	else if (ptflg) { // HAVENT TESTED
+		if (cmdflg) { // GETS IGNORED BY ./uqparallel ls ::: -a -b -c
+			COMMAND cmd = parse_cmd(argc, argv, optind);
+			char*** exec_array = pertask_append(pertask_args, cmd.array, cmd.length, pertask_args_count);
+
+		}
+		else { // NO CMD GIVEN
+			char*** exec_array = malloc(pertask_args_count * sizeof(char**));
+
+			for (int i = 0 ; i < pertask_args_count ; i++) {
+				exec_array[i][0] = strdup(pertask_args[i]);
+			}
+
+			for (int i = 0 ; i < pertask_args_count ; i++) {
+				spawn_child_exec(exec_array[i]);
+			}
+
+			// FREE'ing
+			for (int i = 0 ; i < pertask_args_count ; i++) {
+				free(exec_array[i]);
+			}
+			free(exec_array);
+
+		}
+	}
 
 	else {
 		no_args();		
 	}
 	
+
+
+	// FREE MEMORY
 	for (int i = 0 ; i < pertask_args_count ; i++) {
 		free(pertask_args[i]);
 	}
@@ -244,6 +300,10 @@ int main(int argc, char* argv[]) {
 
 														/* Helper Functions */
 //-----------------------------------------------------------------------------------------------------------------------------------------//
+
+void sigfunc (int s) {
+	endrt = true;
+}
 
 void cmd_err(){
 	fprintf(stderr,"Usage: ./uqparallel [--dryrun] [--abort-on-error] [--maxjobs n] [--pipe] [--args-file argument-filename] [cmd [fixed-args ...]] [::: per-task-args ...]\n");
@@ -288,11 +348,17 @@ char* strcombine(int count, char* strs[]) {
 		strcat(buffer, strs[i]);
 	}
 	return buffer;
+	/*
+	free(buffer);
+	*/
 }
 
 bool cmd_check (char* cmd, struct option options[]) { // returns true if is a command, false if is an option 
 	for (int i = 0 ; i < 5 ; i++) { //number of possible options
 		if (!strstr(cmd,options[i].name)) {
+			if (i == 4) {
+				return true;
+			}
 			continue;
 		}
 		else {
@@ -368,6 +434,28 @@ int adjust_argc (int argc, char* argv[]) {
 	return i;
 }
 
+COMMAND parse_options (int argc, char** argv) {
+	COMMAND options;
+	options.length = 0;
+	options.array = malloc(argc*sizeof(char*));
+
+	for (int i = 0 ; i < argc ; i++) {
+		if (strstr(argv[i],"--")) {
+			options.array[options.length] = strdup(argv[i]);
+			options.length++;
+		}
+	}
+	options.array = realloc(options.array,(sizeof(char*) * options.length));
+	return options;
+	/*
+	 * TO FREE
+	for (int i = 0 i < options.length ; i++) {
+		free(options.array[i]);
+	}
+	free(options.array);
+	*/
+}
+
 // returns pointer new array of strings with pertask args appended to them
 char*** pertask_append (char** argument_array, char** cmds, int cmdcount, int argcount) { //make it append the current argv[] with the pertask arguments
 	char*** new_array = malloc(argcount * sizeof(char**));	 //include null terminator
@@ -406,6 +494,31 @@ void spawn_child_exec (char** cmd) {
 		exit(78);
 	}
 }
+
+// parses comands from argv from the optind which points at the last option argument
+COMMAND parse_cmd (int argc, char** argv, int optind) {
+	char** buffer = malloc( sizeof(char*) * (argc-1)); 
+	COMMAND command;
+	int numtokens;
+
+	for (int i = 0 ; i < argc-1 ; i++) {
+		buffer[i] = strdup(argv[i+1]);	
+	}
+
+	char* buffer2 = strcombine(argc-1, buffer);
+
+	// FREE buffer
+	for (int i = 0 ; i < argc-1 ; i++) {
+		free(buffer[i]);
+	}
+	free(buffer);
+
+	command.array = split_space_not_quote(buffer2, &numtokens);
+	command.length = numtokens;
+	
+	return command;
+}
+
 													/* Working Functions */
 //------------------------------------------------------------------------------------------------------------------------------//
 void dryrun(FILE *file, int fflg, int pflg, int optind, int argc, char* argv[], int ptflg, char** pt_args, int pt_arg_count) {

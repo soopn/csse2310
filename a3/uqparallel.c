@@ -45,7 +45,7 @@ void spawn_child_exec (char** cmd);
 COMMAND parse_cmd (int argc, char** argv, int optind);
 COMMAND parse_options (int argc, char** argv);
 char** remove_arguments (int argc, char* argv[]); 
-void argsfile(FILE *file, int pflg); 
+void argsfile(FILE *file, int pflg, int jobcount); 	// HAS TO APPEND THE CMD WITH THE FILE CONTENTS
 void no_args(void); 
 void pipeline(char*** command_vector, int cmdcount);
 
@@ -57,6 +57,7 @@ void pipeline(char*** command_vector, int cmdcount);
 // EMPTY STRING INPUT WITH FIXED ARGS IS IN THE FORMAT ./uqparallel "" [fixed-args...]
 // TEMPORARY MAGIC NUM = 50
 
+// NEED TO EXIT ON LAST CHILD EXIT STATUS NOT 0
 int main(int argc, char* argv[]) {
 
 	if (argc == 1) {
@@ -88,10 +89,11 @@ int main(int argc, char* argv[]) {
 	char* filename = NULL;
 	opt_index option_index = {.indabort = 0, .indpipe = 0, .indpertask = 0,
 							  .inddry = 0, .indfile = 0, .indjob = 0};
+	int exit_status = 50;
 	struct sigaction sa;			// could probably put sighandler after option parsing so if abort-on-error then include SA_NOCLDSTOP
 	memset(&sa, 0, sizeof(sa));
 	sa.sa_handler = sigfunc;
-	sa.sa_flags = SA_RESTART;
+	sa.sa_flags = SA_RESTART | SA_NOCLDSTOP;
 	sigaction(SIGTERM | SIGINT, &sa, 0); // i think
 
 	//option arguments
@@ -254,7 +256,14 @@ int main(int argc, char* argv[]) {
 
 	// run on file
 	else if (fflg) {
-		argsfile(inputFile, pflg);
+		int jobcount = count_jobs(inputFile);
+		rewind(inputFile);
+
+		if (cmdflg) {
+		}
+		else {
+			argsfile(inputFile, pflg, jobcount);
+		}
 	}
 	else if (ptflg) { // run per task arugments
 		if (cmdflg) {
@@ -461,6 +470,12 @@ COMMAND parse_options (int argc, char** argv) {
 			options.array[options.length] = strdup(argv[i]);
 			options.length++;
 		}
+		if (strstr(argv[i],"args-file") || strstr(argv[i],"maxjobs")) {
+			if (argv[i+1] != NULL && !strstr(argv[i+1],"--")) {
+				options.array[options.length] = strdup(argv[i+1]);
+				options.length++;
+			}
+		}
 	}
 	options.array = realloc(options.array,(sizeof(char*) * options.length) + 1);
 	options.array[options.length] = NULL;
@@ -505,11 +520,14 @@ char*** pertask_append (char** argument_array, char** cmds, int cmdcount, int ar
 
 void spawn_child_exec (char** cmd) {
 	if (!fork()) {
+		if (!strcmp(cmd[0],"") || cmd[0] == NULL){
+			exit(78);
+		}
 		execvp(cmd[0], cmd);
 		fprintf(stderr, "uqparallel: \"%s\" not able to be executed\n", cmd[0]);
 		fflush(stderr);
 		fflush(stdout);
-		exit(78);
+		exit(78); //unsure how this exit code shd work
 	}
 }
 
@@ -535,6 +553,41 @@ COMMAND parse_cmd (int argc, char** argv, int optind) {
 	command.length = numtokens;
 	
 	return command;
+}
+
+// returns array of commands from file
+char*** parse_cmd_file(FILE *file, int jobcount) {
+	char buffer[50];
+	int index = 0;
+	int numtokens;
+
+	char** cmd_array = malloc(jobcount * sizeof(char*)); // stores cmds in array rather than char**
+	char*** exec_array = malloc(jobcount * sizeof(char**)); // stores pointers to cmd_array in array
+
+	// GET STRING FROM FILE AND STORE IN ARRAY
+	while (fgets(buffer, sizeof(buffer), file)) {
+		char* strbuffer = remove_NL(buffer);
+		char** cmds = split_space_not_quote(strbuffer, &numtokens);
+
+		if (cmds == NULL) {
+			continue;
+		}
+
+		for (int x = 0 ; x < numtokens+1; x++) {	
+			cmd_array[x] = cmds[x];
+		}
+		numtoken_array[index] = numtokens;
+
+		exec_array[index] = malloc((numtokens+1) * sizeof(char*) + sizeof(int)); //unsure about this one but meant to include null terminator
+		
+		for (int i = 0 ; i < numtokens ; i++) {
+			exec_array[index][i] = strdup(cmd_array[i]); 
+		}
+		exec_array[index][numtokens+1] = NULL;
+		index++;
+	}
+	free(cmd_array);
+	return exec_array;
 }
 
 													/* Working Functions */
@@ -607,12 +660,10 @@ void dryrun(FILE *file, int fflg, int pflg, int optind, int argc, char* argv[], 
 
 }
 
-void argsfile(FILE *file, int pflg) {
+void argsfile(FILE *file, int pflg,int jobcount) {
 	char buffer[50];
 	int index = 0;
 	int numtokens;
-	int jobcount = count_jobs(file);
-	rewind(file); // because jobcount calls fgets(), go back to start of file found from fseek() man page from lectures
 
 	char** cmd_array = malloc(jobcount * sizeof(char*)); // stores cmds in array rather than char**
 	char** exec_array[jobcount+1]; // stores pointers to cmd_array in array
@@ -623,12 +674,16 @@ void argsfile(FILE *file, int pflg) {
 		char* strbuffer = remove_NL(buffer);
 		char** cmds = split_space_not_quote(strbuffer, &numtokens);
 
+		if (cmds == NULL) {
+			continue;
+		}
+
 		for (int x = 0 ; x < numtokens+1; x++) {	
 			cmd_array[x] = cmds[x];
 		}
 		numtoken_array[index] = numtokens;
 
-		exec_array[index] = malloc((numtokens+1) * sizeof(char*)+ sizeof(int)); //unsure about this one but meant to include null terminator
+		exec_array[index] = malloc((numtokens+1) * sizeof(char*) + sizeof(int)); //unsure about this one but meant to include null terminator
 		
 		for (int i = 0 ; i < numtokens ; i++) {
 			exec_array[index][i] = strdup(cmd_array[i]); 
@@ -659,8 +714,12 @@ void argsfile(FILE *file, int pflg) {
 	pid_t* pids = malloc(sizeof(pid_t) * jobcount);
 	
 	for (int i = 0 ; i < jobcount ; i++) {
+		if (exec_array[i][0] == NULL) {
+			continue;
+		}
 		if (!(pids[i] = fork())) {
 			execvp(exec_array[i][0], exec_array[i]); 
+			fprintf(stderr, "uqparallel: \"%s\" not able to be executed\n", exec_array[i][0]);
 			fflush(stdout);
 			exit(78); // UNSURE ABOUT THIS EXIT STATUS
 		}
@@ -669,12 +728,14 @@ void argsfile(FILE *file, int pflg) {
 	// WAIT FOR DEATH
 	for (int i = 0 ; i < jobcount ; i++ ) {
 		waitpid(pids[i], &status, 0);
+		/*
 		if (WIFEXITED(status)) {
 			printf("EXITED WITH STATUS %d\n", WEXITSTATUS(status));
 		}
 		if (WIFSIGNALED(status)) {
 			printf("SIGNALLED %d\n", WTERMSIG(status));
 		}
+		*/
 	}	
 
 	// FREE MEMORY ARRAY
@@ -687,6 +748,7 @@ void argsfile(FILE *file, int pflg) {
 	free(pids);
 	free(cmd_array);
 	free(numtoken_array);
+	exit(status);
 
 }
 

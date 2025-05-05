@@ -28,6 +28,12 @@ typedef struct COMMAND {
 	int length;
 } COMMAND;
 
+/* MAXJOBS
+  
+ * have an if mflg thing that is a while loop instead of a for loop
+ * and have a check to spawn children only while the number is less than the max*
+ * function pointer???
+ */
 void sigfunc(int s);
 void cmd_err();
 int isnum(char* string);
@@ -49,8 +55,9 @@ COMMAND parse_cmd (int argc, char** argv, int optind);
 COMMAND parse_options (int argc, char** argv);
 char*** parse_cmd_file(FILE *file, int jobcount);
 char** remove_arguments (int argc, char* argv[]); 
-void argsfile(FILE *file, int pflg, int jobcount); 	// HAS TO APPEND THE CMD WITH THE FILE CONTENTS
+void argsfile(FILE *file, int pflg, int jobcount); 	
 void no_args(void); 
+int spawn_maxjobs(int totaljobs, int maxjobs, char** cmd);
 void pipeline(char*** command_vector, int cmdcount);
 
 // SA_NOCLDSTOP signal so only checks if child dies not if child stops
@@ -60,6 +67,7 @@ void pipeline(char*** command_vector, int cmdcount);
 // EMPTY COMMAND LINES SHOULD NOT BE EXECUTED
 // EMPTY STRING INPUT WITH FIXED ARGS IS IN THE FORMAT ./uqparallel "" [fixed-args...]
 // TEMPORARY MAGIC NUM = 50
+// pipeline needs to wait on final exit status or maybe it returns an int which is the final exit status instead
 
 // NEED TO EXIT ON LAST CHILD EXIT STATUS NOT 0
 // DRYRUN NEEDS TO WORK WITH CMDS
@@ -183,20 +191,6 @@ int main(int argc, char* argv[]) {
 			
 	}
 
-/* DEBUGGING */	
-///////////////////////////////////////////////
-
-/*
-	for (int i = 0 ; i < argc ; i++) {
-		printf("%s ",argv[i]);
-	}
-	printf("\n");
-	printf("\n");
-*/
-
-//////////////////////////////////////////////
-
-
 	for (int i = 0 ; i < argc ; i++) {
 		if (strcmp(argv[i], ":::") == 0) {
 			if (fflg != 0) {
@@ -240,18 +234,6 @@ int main(int argc, char* argv[]) {
 		}
 	}
 		
-
-/* DEBUGGING */	
-///////////////////////////////////////////////
-/*
-	for (int i = 0 ; i < argc ; i++) {
-		printf("%s ",argv[i]);
-	}
-	printf("\n");
-	printf("\n");
-*/
-//////////////////////////////////////////////
-
 														/* Actual Executions */
 //----------------------------------------------------------------------------------------------------------------------------------------//
 	// dryrun
@@ -266,6 +248,8 @@ int main(int argc, char* argv[]) {
 
 		if (cmdflg) { // cmd present with file
 			COMMAND cmd = parse_cmd(argc, argv, optind);
+			int status;
+			pid_t* pids = malloc(sizeof(pid_t) * jobcount);
 			char*** file_cmd_array = parse_cmd_file(inputFile, jobcount);
 			char*** exec_array = malloc(jobcount * sizeof(char**));
 
@@ -277,13 +261,18 @@ int main(int argc, char* argv[]) {
 				spawn_child_exec(exec_array[i]);
 			}
 
-			// WAITING
-			// 
-			//
-			//
-			//
-			//
-			//
+			for (int i = 0 ; i < jobcount ; i++ ) {
+				waitpid(pids[i], &status, 0);
+			}	
+
+			// FREE'ing
+			for (int i = 0 ; i < jobcount ; i++) {
+				free(exec_array[i]);
+			}
+			free(file_cmd_array);
+			free(exec_array);
+			free(pids);
+			exit(status);
 
 		}
 		else {
@@ -822,6 +811,30 @@ void no_args(void) {
 	free(numtoken_array);
 	exit(0);
 }
+
+int spawn_maxjobs(int totaljobs, int maxjobs, char** cmd) {
+	int numChildren = 0;
+	int jobnum = 0;
+	int status;
+	
+	while (jobnum <= totaljobs) {
+		if (numChildren < maxjobs) {
+			jobnum++;
+			spawn_child_exec(cmd);
+		}
+		if (endrt) {
+			pid_t pid;
+			while (pid = waitpid(-1, &status, WNOHANG)) {
+				numChildren--;
+			}
+			endrt = false;
+		}
+	}
+	return status;
+}
+
+	 
+
 
 // from **cmds[] cmd1 --> cmd2 --> cmd3 --> ... --> stdout
 void pipeline(char*** command_vector, int cmdcount) {

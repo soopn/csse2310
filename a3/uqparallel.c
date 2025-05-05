@@ -55,6 +55,9 @@ COMMAND parse_cmd (int argc, char** argv, int optind);
 COMMAND parse_options (int argc, char** argv);
 char*** parse_cmd_file(FILE *file, int jobcount);
 char** remove_arguments (int argc, char* argv[]); 
+void dryfile(FILE* file, int pflg, int cmdflg, int argc, char** argv, int optind);
+void drypt (int argc, char** argv, char** pt_args, int pt_arg_count, int optind, int pflg);
+void drynoarg (int argc, char** argv, int optind);
 void argsfile(FILE *file, int pflg, int jobcount); 	
 void no_args(void); 
 int spawn_maxjobs(int totaljobs, int maxjobs, char** cmd);
@@ -238,7 +241,16 @@ int main(int argc, char* argv[]) {
 //----------------------------------------------------------------------------------------------------------------------------------------//
 	// dryrun
 	if (dflg) {
-		dryrun(inputFile, fflg, pflg, optind, argc, argv, ptflg, pertask_args, pertask_args_count);
+		if (fflg) {
+			dryfile(inputFile, pflg, cmdflg, argc, argv, optind);
+		}
+		else if (ptflg) {
+			drypt(argc, argv, pertask_args, pertask_args_count, optind, pflg);
+		}
+		else {
+			drynoarg(argc, argv, optind);
+		}
+
 	}	
 
 	// run on file
@@ -424,7 +436,12 @@ void print_array(int size, char* array[]) { // prints array separated by whitesp
 	for (int i = 0 ; i < size ; i++) {
 		buffer = strdup(array[i]);
 		newstr = remove_NL(buffer);	
-		fprintf(stdout, "%s ", newstr);
+		if (i == size - 1) {
+			fprintf(stdout, "%s", newstr);
+		}
+		else {
+			fprintf(stdout, "%s ", newstr);
+		}
 		free(buffer);
 	}
 }
@@ -602,10 +619,6 @@ COMMAND parse_cmd (int argc, char** argv, int optind) {
 	command.array = split_space_not_quote(buffer2, &numtokens);
 	command.length = numtokens;
 
-	for (int i = 0 ; i < numtokens ; i++) {
-		printf("%s\n",command.array[i]);
-	}
-	
 	return command;
 }
 
@@ -652,11 +665,39 @@ void free2darray (char** argv, int argc) {
 
 													/* Working Functions */
 //------------------------------------------------------------------------------------------------------------------------------//
-void dryrun(FILE *file, int fflg, int pflg, int optind, int argc, char* argv[], int ptflg, char** pt_args, int pt_arg_count) {
+void dryfile(FILE* file, int pflg, int cmdflg, int argc, char** argv, int optind) {
+	// redo this thing with split_space_not_quote
 	int jobnum = 1;
-	char buffer[50];
-	
-	if (fflg){
+	char buffer[50];	
+	rewind(file);
+	if (cmdflg) {
+		COMMAND cmd = parse_cmd(argc, argv, optind);
+		while (fgets(buffer, sizeof(buffer), file) != NULL) {
+			int numtokens;
+			char** buffer2 = split_space_not_quote(buffer, &numtokens);
+			
+			fprintf(stdout, "%d: %s", jobnum, cmd.array[0]);
+					 
+			for (int i = 1 ; i < cmd.length; i++) {
+				fprintf(stdout, " %s", cmd.array[i]);
+			}
+
+			for (int i = 0 ; i < numtokens; i++) {
+				fprintf(stdout, " %s", buffer2[i]);
+			}
+
+			if (pflg) {
+				fprintf(stdout, " |\n");
+			}
+			else {
+				fprintf(stdout, "\n");
+			}
+		jobnum++;
+		free(buffer2);
+		}
+	free(cmd.array);
+	}
+	else {
 		while (fgets(buffer, sizeof(buffer), file) != NULL) {
 			char* string = remove_NL(buffer);
 			fprintf(stdout, "%d: %s", jobnum, string);
@@ -670,54 +711,61 @@ void dryrun(FILE *file, int fflg, int pflg, int optind, int argc, char* argv[], 
 		jobnum++;
 		}
 	}
-	else if (ptflg) {
-		int cmd_count = argc - optind;
+	return;
+}
+void drypt (int argc, char** argv, char** pt_args, int pt_arg_count, int optind, int pflg) {
+	int jobnum = 1;
+	int cmd_count = argc - optind;
 
-		char*** exec_array = malloc(pt_arg_count * sizeof(char**));
-		char** cmd_array = malloc(cmd_count * sizeof(char*)); 
+	char*** exec_array = malloc(pt_arg_count * sizeof(char**));
+	char** cmd_array = malloc(cmd_count * sizeof(char*)); 
 
-		// POPULATE ARRAY OF COMMANDS
-		for (int i = 0 ; i < cmd_count ; i++) {
-			cmd_array[i] = strdup(argv[optind+i]);
+	// POPULATE ARRAY OF COMMANDS
+	for (int i = 0 ; i < cmd_count ; i++) {
+		cmd_array[i] = strdup(argv[optind+i]);
+	}
+
+	// NEW ARRAY OF APPENDED COMMANDS
+	exec_array = pertask_append(pt_args, cmd_array, cmd_count, pt_arg_count); 
+
+	while (jobnum <= pt_arg_count) {
+		fprintf(stdout, "%d: ", jobnum);
+		print_array(cmd_count + 1, exec_array[jobnum-1]); // smells like a segfault
+		if (pflg) {
+			fprintf(stdout, " |\n");
 		}
+		else {
+			fprintf(stdout, "\n");
+		}
+		jobnum++;
+	}
 
-		// NEW ARRAY OF APPENDED COMMANDS
-		exec_array = pertask_append(pt_args, cmd_array, cmd_count, pt_arg_count); 
+	for (int i = 0 ; i < cmd_count ; i++) {
+		free(cmd_array[i]);
+	}
+	free(cmd_array);
+	free(exec_array);
+}
+
+void drynoarg (int argc, char** argv, int optind) {
+	int jobnum = 1;
+	char buffer[50];
+	char** cmd_array = malloc((argc-optind) * sizeof(char*)); //might be unecessary
 	
-		while (jobnum != pt_arg_count) {
-			print_array(cmd_count + pt_arg_count, exec_array[jobnum-1]); // smells like a segfault
-			if (pflg) {
-				fprintf(stdout, " |\n");
-			}
-			else {
-				fprintf(stdout, "\n");
-			}
-			jobnum++;
-		}
-
-		for (int i = 0 ; i < cmd_count ; i++) {
-			free(cmd_array[i]);
-		}
-		free(cmd_array);
-		free(exec_array);
+	for (int i = 0 ; i < (argc-optind) ; i++) {
+		cmd_array[i] = strdup(argv[optind+i]);
 	}
-	else {
-		char** cmd_array = malloc((argc-optind) * sizeof(char*)); //might be unecessary
-		
-		for (int i = 0 ; i < (argc-optind) ; i++) {
-			cmd_array[i] = strdup(argv[optind+i]);
-			printf("%s\n", cmd_array[i]);
-		}
-		while (fgets(buffer, sizeof(buffer), stdin) != NULL) {
-			fprintf(stdout, "%d: ", jobnum);
-			print_array(argc-optind, cmd_array);
-			fprintf(stdout,"%s", buffer);
-			jobnum++;
-		}
-		free(cmd_array);
+	while (fgets(buffer, sizeof(buffer), stdin) != NULL) {
+		int numtokens;
+		char** outstr = split_space_not_quote(buffer, &numtokens);
+		fprintf(stdout, "%d: ", jobnum);
+		print_array(argc-optind, cmd_array);
+		print_array(numtokens, outstr); // something missing here but should definitely split_space_not_quote
+		fprintf(stdout, "\n");
+		jobnum++;
 	}
-	return; 
-
+	free(cmd_array);
+	return;
 }
 
 void argsfile(FILE *file, int pflg, int jobcount) {
@@ -832,9 +880,6 @@ int spawn_maxjobs(int totaljobs, int maxjobs, char** cmd) {
 	}
 	return status;
 }
-
-	 
-
 
 // from **cmds[] cmd1 --> cmd2 --> cmd3 --> ... --> stdout
 void pipeline(char*** command_vector, int cmdcount) {

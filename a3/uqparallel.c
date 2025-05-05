@@ -69,7 +69,7 @@ void pipeline(char*** command_vector, int cmdcount);
 // KILL is only send to one so it can leave orphans
 // EMPTY COMMAND LINES SHOULD NOT BE EXECUTED
 // EMPTY STRING INPUT WITH FIXED ARGS IS IN THE FORMAT ./uqparallel "" [fixed-args...]
-// TEMPORARY MAGIC NUM = 50
+// TEMPORARY MAGIC NUM = 50 , 100
 // pipeline needs to wait on final exit status or maybe it returns an int which is the final exit status instead
 
 // NEED TO EXIT ON LAST CHILD EXIT STATUS NOT 0
@@ -668,13 +668,14 @@ void free2darray (char** argv, int argc) {
 void dryfile(FILE* file, int pflg, int cmdflg, int argc, char** argv, int optind) {
 	// redo this thing with split_space_not_quote
 	int jobnum = 1;
-	char buffer[50];	
+	char buffer[100];	
 	rewind(file);
 	if (cmdflg) {
 		COMMAND cmd = parse_cmd(argc, argv, optind);
-		while (fgets(buffer, sizeof(buffer), file) != NULL) {
+		while (fgets(buffer, sizeof(buffer), file) != NULL) { //failing 4.8 cmd stuck to the file arg, needs to include the ""???
 			int numtokens;
-			char** buffer2 = split_space_not_quote(buffer, &numtokens);
+			char* buffer1 = remove_NL(buffer);
+			char** buffer2 = split_space_not_quote(buffer1, &numtokens);
 			
 			fprintf(stdout, "%d: %s", jobnum, cmd.array[0]);
 					 
@@ -699,8 +700,11 @@ void dryfile(FILE* file, int pflg, int cmdflg, int argc, char** argv, int optind
 	}
 	else {
 		while (fgets(buffer, sizeof(buffer), file) != NULL) {
-			char* string = remove_NL(buffer);
-			fprintf(stdout, "%d: %s", jobnum, string);
+			int numtokens;
+			char* temp = remove_NL(buffer);
+			char** newstring = split_space_not_quote(temp, &numtokens);
+			fprintf(stdout, "%d: ", jobnum);
+			print_array(numtokens, newstring);
 
 			if (pflg) {
 				fprintf(stdout, " |\n");
@@ -749,7 +753,7 @@ void drypt (int argc, char** argv, char** pt_args, int pt_arg_count, int optind,
 
 void drynoarg (int argc, char** argv, int optind) {
 	int jobnum = 1;
-	char buffer[50];
+	char buffer[100];
 	char** cmd_array = malloc((argc-optind) * sizeof(char*)); //might be unecessary
 	
 	for (int i = 0 ; i < (argc-optind) ; i++) {
@@ -826,7 +830,7 @@ void argsfile(FILE *file, int pflg, int jobcount) {
 */
 
 void no_args(void) {
-	char buffer[50];
+	char buffer[100];
 	int index = 0;
 	int numtokens;
 	int jobcount = 1;

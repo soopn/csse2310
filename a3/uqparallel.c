@@ -13,7 +13,7 @@
 #include <unistd.h>
 
 bool endrt = false;
-
+// something
 typedef struct optindex {
 	int indabort;
 	int indpipe;

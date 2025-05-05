@@ -41,9 +41,13 @@ char* remove_NL (char* string);
 int count_jobs (FILE *file); 
 int count_cmd (char** cmdlines);
 int adjust_argc (int argc, char* argv[]);
+int min(int x, int y);
+char** append_to_array (char** array1 , char** array2);
 void spawn_child_exec (char** cmd);
+void free2darray (char** argv, int argc);
 COMMAND parse_cmd (int argc, char** argv, int optind);
 COMMAND parse_options (int argc, char** argv);
+char*** parse_cmd_file(FILE *file, int jobcount);
 char** remove_arguments (int argc, char* argv[]); 
 void argsfile(FILE *file, int pflg, int jobcount); 	// HAS TO APPEND THE CMD WITH THE FILE CONTENTS
 void no_args(void); 
@@ -58,6 +62,7 @@ void pipeline(char*** command_vector, int cmdcount);
 // TEMPORARY MAGIC NUM = 50
 
 // NEED TO EXIT ON LAST CHILD EXIT STATUS NOT 0
+// DRYRUN NEEDS TO WORK WITH CMDS
 int main(int argc, char* argv[]) {
 
 	if (argc == 1) {
@@ -259,7 +264,27 @@ int main(int argc, char* argv[]) {
 		int jobcount = count_jobs(inputFile);
 		rewind(inputFile);
 
-		if (cmdflg) {
+		if (cmdflg) { // cmd present with file
+			COMMAND cmd = parse_cmd(argc, argv, optind);
+			char*** file_cmd_array = parse_cmd_file(inputFile, jobcount);
+			char*** exec_array = malloc(jobcount * sizeof(char**));
+
+			for (int i = 0 ; i < jobcount ; i++) {
+				exec_array[i] = append_to_array(cmd.array, file_cmd_array[i]);
+			}
+
+			for (int i = 0 ; i < jobcount ; i++) {
+				spawn_child_exec(exec_array[i]);
+			}
+
+			// WAITING
+			// 
+			//
+			//
+			//
+			//
+			//
+
 		}
 		else {
 			argsfile(inputFile, pflg, jobcount);
@@ -366,8 +391,18 @@ int option_index_calc (int optind, int abflg, int pflg, int dflg, int fflg, int 
 	return optind;
 }
 
+int min(int x, int y) {
+	int result;
+	result = (x < y) ? x : y;
+	return result;
+}
+
 char* strcombine(int count, char* strs[]) {
 	char* buffer = strdup(strs[0]);
+	if (count == 1) {
+		return buffer;
+	}
+
 	for (int i = 1 ; i < count ; i++) {
 		strcat(buffer, " ");
 		strcat(buffer, strs[i]);
@@ -429,7 +464,7 @@ int count_cmd (char** cmdlines) {
 	int i = 0;
 	int tally = 0;
 
-	while (cmdlines[i][0] != 0) {
+	while (cmdlines[i] != NULL) {
 		tally++;
 		i++;
 	}
@@ -518,6 +553,30 @@ char*** pertask_append (char** argument_array, char** cmds, int cmdcount, int ar
 												*/
 }
 
+// appends array2 to array 1
+char** append_to_array (char** array1 , char** array2) { 
+	int len1 = count_cmd(array1);
+	int len2 = count_cmd(array2);
+	char** buffer = malloc( (len1+len2) * sizeof(char*) );
+
+	for (int i = 0 ; i < len1 ; i++) {
+		buffer[i] = strdup(array1[i]);
+	}
+	for (int j = 0 ; j < len2 ; j++) {
+		buffer[len1+j] = strdup(array2[j]);
+	}
+
+	buffer[len1+len2] = NULL;
+
+	return buffer;
+/*
+ 	for (int i = 0 ; i < len1 + len2 ; i++){
+		free(array1[i]);
+	}
+ 															*/
+}
+			
+
 void spawn_child_exec (char** cmd) {
 	if (!fork()) {
 		if (!strcmp(cmd[0],"") || cmd[0] == NULL){
@@ -534,14 +593,16 @@ void spawn_child_exec (char** cmd) {
 // parses comands from argv from the optind which points at the last option argument
 COMMAND parse_cmd (int argc, char** argv, int optind) {
 	char** buffer = malloc( sizeof(char*) * (argc-1)); 
+	int index = 0;
 	COMMAND command;
 	int numtokens;
 
-	for (int i = 0 ; i < argc-1 ; i++) {
-		buffer[i] = strdup(argv[i+1]);	
+	for (int i = optind ; i < argc ; i++) {
+		buffer[index] = strdup(argv[i]);	
+		index++;
 	}
 
-	char* buffer2 = strcombine(argc-1, buffer);
+	char* buffer2 = strcombine(argc-optind, buffer);
 
 	// FREE buffer
 	for (int i = 0 ; i < argc-1 ; i++) {
@@ -551,6 +612,10 @@ COMMAND parse_cmd (int argc, char** argv, int optind) {
 
 	command.array = split_space_not_quote(buffer2, &numtokens);
 	command.length = numtokens;
+
+	for (int i = 0 ; i < numtokens ; i++) {
+		printf("%s\n",command.array[i]);
+	}
 	
 	return command;
 }
@@ -576,7 +641,6 @@ char*** parse_cmd_file(FILE *file, int jobcount) {
 		for (int x = 0 ; x < numtokens+1; x++) {	
 			cmd_array[x] = cmds[x];
 		}
-		numtoken_array[index] = numtokens;
 
 		exec_array[index] = malloc((numtokens+1) * sizeof(char*) + sizeof(int)); //unsure about this one but meant to include null terminator
 		
@@ -588,6 +652,13 @@ char*** parse_cmd_file(FILE *file, int jobcount) {
 	}
 	free(cmd_array);
 	return exec_array;
+}
+
+void free2darray (char** argv, int argc) {
+	for (int i = 0 ; i < argc ; i++) {
+		free(argv[i]);
+	}
+	free(argv);
 }
 
 													/* Working Functions */
@@ -660,43 +731,9 @@ void dryrun(FILE *file, int fflg, int pflg, int optind, int argc, char* argv[], 
 
 }
 
-void argsfile(FILE *file, int pflg,int jobcount) {
-	char buffer[50];
-	int index = 0;
-	int numtokens;
+void argsfile(FILE *file, int pflg, int jobcount) {
+	char*** exec_array = parse_cmd_file(file,jobcount);
 
-	char** cmd_array = malloc(jobcount * sizeof(char*)); // stores cmds in array rather than char**
-	char** exec_array[jobcount+1]; // stores pointers to cmd_array in array
-	int* numtoken_array = calloc(jobcount,sizeof(int)); // store number of args in each command
-
-	// GET STRING FROM FILE AND STORE IN ARRAY
-	while (fgets(buffer, sizeof(buffer), file)) {
-		char* strbuffer = remove_NL(buffer);
-		char** cmds = split_space_not_quote(strbuffer, &numtokens);
-
-		if (cmds == NULL) {
-			continue;
-		}
-
-		for (int x = 0 ; x < numtokens+1; x++) {	
-			cmd_array[x] = cmds[x];
-		}
-		numtoken_array[index] = numtokens;
-
-		exec_array[index] = malloc((numtokens+1) * sizeof(char*) + sizeof(int)); //unsure about this one but meant to include null terminator
-		
-		for (int i = 0 ; i < numtokens ; i++) {
-			exec_array[index][i] = strdup(cmd_array[i]); 
-		}
-		exec_array[index][numtokens+1] = NULL;
-		index++;
-		
-		// FREE MEMORY (LEADS TO ERROR???)
-		//free(cmds);
-		//free(strbuffer);
-	
-
-	}
 	if (pflg) {
 		// RUN PIPELINE
 		pipeline(exec_array, jobcount);
@@ -728,14 +765,6 @@ void argsfile(FILE *file, int pflg,int jobcount) {
 	// WAIT FOR DEATH
 	for (int i = 0 ; i < jobcount ; i++ ) {
 		waitpid(pids[i], &status, 0);
-		/*
-		if (WIFEXITED(status)) {
-			printf("EXITED WITH STATUS %d\n", WEXITSTATUS(status));
-		}
-		if (WIFSIGNALED(status)) {
-			printf("SIGNALLED %d\n", WTERMSIG(status));
-		}
-		*/
 	}	
 
 	// FREE MEMORY ARRAY
@@ -746,8 +775,6 @@ void argsfile(FILE *file, int pflg,int jobcount) {
 	
 	// FREEING MEMORY 
 	free(pids);
-	free(cmd_array);
-	free(numtoken_array);
 	exit(status);
 
 }

@@ -41,13 +41,33 @@ typedef enum {
 const int EMPTY_EXIT_CODE = 33;
 const char* empty_cmd_msg = "uqparallel: cannot execute empty command.\n";
 const char* usage_err_msg = "Usage: ./uqparallel [--dryrun] [--abort-on-error] [--maxjobs n] [--pipe] [--args-file argument-filename] [cmd [fixed-args ...]] [::: per-task-args ...]\n";
+const char* abort_err_msg = "uqparallel: aborting because of execution failure.\n";
 ///////////////////////////////////////////////////////////////////////////////
+
 /* MAXJOBS
   
  * have an if mflg thing that is a while loop instead of a for loop
  * and have a check to spawn children only while the number is less than the max*
  * function pointer???
- */
+ 
+*/
+
+/* ABORT ON ERROR
+ 
+ * sigtimedwait(2) to wait 1 second before 
+ * implement a function pointer after the flag that goes to a wait loop that waits for all the children up until the current iteration?
+ * dont run anymore tasks
+ * for any tasks still running, send SIGTERM to all of them
+ * wait for 1 second, if still running send SIGKILL
+ * if no more tasks, exit
+ * IF FAILURE IS ON LAST POSSIBLE TASK THEN DONT PRINT abort_err_msg
+ * if execution failure is due to empty command in a pipeline, exit(78)
+ *
+ * maybe use a static int that changes if abort is present or not from 0 or WNOHANG?
+
+*/
+
+// SHOULD NOT BE PRINTING ANYTHING TO STDER???
 
 void sigfunc(int s);
 void cmd_err();
@@ -73,10 +93,10 @@ char** remove_arguments (int argc, char* argv[]);
 void dryfile(FILE* file, int pflg, int cmdflg, int argc, char** argv, int optind);
 void drypt (int argc, char** argv, char** pt_args, int pt_arg_count, int optind, int pflg);
 void drynoarg (int argc, char** argv, int optind);
-void argsfile(FILE *file, int pflg, int jobcount); 	
+void argsfile(FILE *file, int pflg, int jobcount, int mflg, int maxjobs); 	
 int no_args(void); 
 int stdinloop (COMMAND cmd);
-int spawn_maxjobs(int totaljobs, int maxjobs, char** cmd);
+int spawn_maxjobs(int totaljobs, int maxjobs, char*** cmd);
 void pipeline(char*** command_vector, int cmdcount);
 
 // SA_NOCLDSTOP signal so only checks if child dies not if child stops
@@ -126,7 +146,7 @@ int main(int argc, char* argv[]) {
 	memset(&sa, 0, sizeof(sa));
 	sa.sa_handler = sigfunc;
 	sa.sa_flags = SA_RESTART | SA_NOCLDSTOP;
-	sigaction(SIGTERM | SIGINT, &sa, 0); // i think
+	sigaction(SIGCHLD, &sa, 0); // i think add SIGTERM SIGUSR1
 
 	//option arguments
 	FILE *inputFile = NULL;
@@ -301,7 +321,7 @@ int main(int argc, char* argv[]) {
 			free(pids);
 		}
 		else {
-			argsfile(inputFile, pflg, jobcount);
+			argsfile(inputFile, pflg, jobcount, mflg, maxjobs);
 		}
 	}
 	else if (ptflg) { // run per task arugments
@@ -314,6 +334,9 @@ int main(int argc, char* argv[]) {
 			
 			if (pflg){
 				pipeline(exec_array, pertask_args_count);
+			}
+			else if (mflg) {
+				spawn_maxjobs(pertask_args_count, maxjobs, exec_array);
 			}
 			else {
 				for (int i = 0 ; i < pertask_args_count ; i++) {
@@ -337,13 +360,18 @@ int main(int argc, char* argv[]) {
 				exec_array[i][0] = strdup(pertask_args[i]);
 			}
 
-			for (int i = 0 ; i < pertask_args_count ; i++) {
-				exit_status = spawn_child_exec(exec_array[i]);
+			if (mflg) {
+				spawn_maxjobs(pertask_args_count, maxjobs, exec_array);
 			}
-			
-			// WAITING
-			for (int i = 0 ; i < pertask_args_count ; i++) {
-				waitpid(-1, &exit_status, WNOHANG);
+			else {
+				for (int i = 0 ; i < pertask_args_count ; i++) {
+					exit_status = spawn_child_exec(exec_array[i]);
+				}
+				
+				// WAITING
+				for (int i = 0 ; i < pertask_args_count ; i++) {
+					waitpid(-1, &exit_status, WNOHANG);
+				}
 			}
 
 			// FREE'ing
@@ -622,7 +650,9 @@ int spawn_child_exec (char** cmd) {
 		fprintf(stderr, "uqparallel: \"%s\" not able to be executed\n", cmd[0]);
 		fflush(stderr);
 		fflush(stdout);
-		exit(78); //unsure how this exit code shd work
+		//kill(getpid(), SIGUSR1); SOMEHOW FAILS 5.6.stderr
+		//exit(9999999); // for checking
+		
 	}
 	return 0; 
 }
@@ -819,7 +849,7 @@ void drynoarg (int argc, char** argv, int optind) {
 	return;
 }
 
-void argsfile(FILE *file, int pflg, int jobcount) {
+void argsfile(FILE *file, int pflg, int jobcount, int mflg, int maxjobs) {
 	char*** exec_array = parse_cmd_file(file,jobcount);
 
 	if (pflg) {
@@ -836,27 +866,33 @@ void argsfile(FILE *file, int pflg, int jobcount) {
 
 	// SPAWNING CHILDREN	
 	int status;
-	pid_t* pids = malloc(sizeof(pid_t) * jobcount);
-	
-	for (int i = 0 ; i < jobcount ; i++) {
-		if (exec_array[i][0] == NULL) {
-			continue;
-		}
-		if (!(pids[i] = fork())) { // look at parent and store pid in array
-			execvp(exec_array[i][0], exec_array[i]); 
-			fprintf(stderr, "uqparallel: \"%s\" not able to be executed\n", exec_array[i][0]);
-			fflush(stdout);
-			exit(78); // UNSURE ABOUT THIS EXIT STATUS SHOULD TERMINATE ITSELF WITH SIGSUR
-		}
+	if (mflg) {
+		status = spawn_maxjobs (jobcount, maxjobs, exec_array);
 	}
-
-	// WAIT FOR DEATH
-	for (int i = 0 ; i < jobcount ; i++ ) {
-		waitpid(pids[i], &status, 0);
-		if (WIFSIGNALED(status)) {
-			status = EXIT_SIGNAL;
+	else {
+		pid_t* pids = malloc(sizeof(pid_t) * jobcount);
+		
+		for (int i = 0 ; i < jobcount ; i++) {
+			if (exec_array[i][0] == NULL) {
+				continue;
+			}
+			if (!(pids[i] = fork())) { // look at parent and store pid in array
+				execvp(exec_array[i][0], exec_array[i]); 
+				fprintf(stderr, "uqparallel: \"%s\" not able to be executed\n", exec_array[i][0]);
+				fflush(stdout);
+				exit(78); // UNSURE ABOUT THIS EXIT STATUS SHOULD TERMINATE ITSELF WITH SIGSUR
+			}
 		}
-	}	
+
+		// WAIT FOR DEATH
+		for (int i = 0 ; i < jobcount ; i++ ) {
+			waitpid(pids[i], &status, 0);
+			if (WIFSIGNALED(status)) {
+				status = EXIT_SIGNAL;
+			}
+		}	
+	free(pids);
+	}
 
 	// FREE MEMORY ARRAY
 	for (int i = 0 ; i < jobcount ; i++) {
@@ -865,7 +901,7 @@ void argsfile(FILE *file, int pflg, int jobcount) {
 	//might need to free one more line not sure
 	
 	// FREEING MEMORY 
-	free(pids);
+	free(file);
 	exit(status);
 
 }
@@ -918,15 +954,16 @@ int no_args(void) {
 	return status;
 }
 
-int spawn_maxjobs(int totaljobs, int maxjobs, char** cmd) {
+int spawn_maxjobs(int totaljobs, int maxjobs, char*** cmd) {
 	int numChildren = 0;
 	int jobnum = 0;
 	int status;
 	
-	while (jobnum <= totaljobs) {
+	while (jobnum < totaljobs) { // unsure if <=
 		if (numChildren < maxjobs) {
+			status = spawn_child_exec(cmd[jobnum]);
 			jobnum++;
-			status = spawn_child_exec(cmd);
+			numChildren++;
 		}
 		if (endrt) {
 			pid_t pid;

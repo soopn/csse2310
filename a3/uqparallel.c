@@ -702,7 +702,10 @@ int spawn_child_loop (pid_t* pids, char** cmd, int N) { // returns exit status o
 	return status;
 }
 
-
+bool signalcheck (int status) {
+	bool check = (WIFSIGNALED(status)) ? true : false;
+	return check;
+}
 													/* Working Functions */
 //------------------------------------------------------------------------------------------------------------------------------//
 void dryfile(FILE* file, int pflg, int cmdflg, int argc, char** argv, int optind) {
@@ -846,6 +849,9 @@ void argsfile(FILE *file, int pflg, int jobcount) {
 	// WAIT FOR DEATH
 	for (int i = 0 ; i < jobcount ; i++ ) {
 		waitpid(pids[i], &status, 0);
+		if (WIFSIGNALED(status)) {
+			status = EXIT_SIGNAL;
+		}
 	}	
 
 	// FREE MEMORY ARRAY
@@ -877,7 +883,6 @@ int no_args(void) {
 	int status;
 
 	char*** cmd_array = malloc(jobcount * sizeof(char**)); // stores cmds in array 
-	int* numtoken_array = calloc(jobcount, sizeof(int)); // store number of args in each command
 
 	// GET STRING FROM FILE AND STORE IN ARRAY
 	while (fgets(buffer, sizeof(buffer), stdin)) {
@@ -886,10 +891,8 @@ int no_args(void) {
 		
 		if (jobcount > 1) {
 			cmd_array = (char***)realloc(cmd_array, jobcount * sizeof(char*));
-			numtoken_array = (int*)realloc(numtoken_array, jobcount * sizeof(int));
 		}
 			
-		numtoken_array[index] = numtokens;
 		cmd_array[index] = cmds;
 		status = spawn_child_exec(cmd_array[index]);
 		index++;
@@ -899,12 +902,15 @@ int no_args(void) {
 	// WAIT FOR DEATH
 	for (int i = 0 ; i < jobcount ; i++) {
 		waitpid(-1, &status, 0);	
+		if (WIFSIGNALED(status)) {
+			status = EXIT_SIGNAL;
+			break;
+		}
 	}
 	
 	// FREEING MEMORY 
 	//free(pids);
 	free(cmd_array);
-	free(numtoken_array);
 	return status;
 }
 
@@ -1000,10 +1006,6 @@ int stdinloop (COMMAND input) {
 
 	while (fgets(buffer, sizeof(buffer), stdin)) {
 		char* strbuffer = remove_NL(buffer);
-		if (!strcmp(strbuffer,"")) {
-			status = EXIT_EMPTY;
-			continue;
-		}
 		char** cmds = split_space_not_quote(strbuffer, &numtokens);
 		
 		if (jobcount > 1) {
@@ -1019,11 +1021,15 @@ int stdinloop (COMMAND input) {
 	// WAIT FOR DEATH
 	for (int i = 0 ; i < jobcount ; i++) {
 		waitpid(-1, &status, 0);
+		if (WIFSIGNALED(status)) {
+			status = EXIT_SIGNAL;
+			break;
+		}
 	}
 
 	//FREE'ing 
 	free(cmd_array);
-	return(status);
+	return status;
 }
 
 

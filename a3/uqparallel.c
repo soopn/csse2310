@@ -14,7 +14,6 @@
 
 bool endrt = false;
 
-const int EMPTY_EXIT_CODE = 33;
 typedef struct optindex {
 	int indabort;
 	int indpipe;
@@ -38,6 +37,11 @@ typedef enum {
 	EXIT_PIPELINE = 78
 } ExitStatus;
 
+/////////////////////////////////////////////////////////////////////////////
+const int EMPTY_EXIT_CODE = 33;
+const char* empty_cmd_msg = "uqparallel: cannot execute empty command.\n";
+const char* usage_err_msg = "Usage: ./uqparallel [--dryrun] [--abort-on-error] [--maxjobs n] [--pipe] [--args-file argument-filename] [cmd [fixed-args ...]] [::: per-task-args ...]\n";
+///////////////////////////////////////////////////////////////////////////////
 /* MAXJOBS
   
  * have an if mflg thing that is a while loop instead of a for loop
@@ -379,7 +383,7 @@ void sigfunc (int sig) {
 }
 
 void cmd_err(){
-	fprintf(stderr,"Usage: ./uqparallel [--dryrun] [--abort-on-error] [--maxjobs n] [--pipe] [--args-file argument-filename] [cmd [fixed-args ...]] [::: per-task-args ...]\n");
+	fprintf(stderr, usage_err_msg);
 	exit(EXIT_USAGE);
 }
 int isnum(char* string) {
@@ -611,7 +615,7 @@ int spawn_child_exec (char** cmd) {
 	}
 	if (!fork()) {
 		if (!strcmp(cmd[0],"") || cmd[0] == NULL){
-			fprintf(stderr, "uqparallel: cannot execute empty command.");
+			fprintf(stderr, empty_cmd_msg); 
 			exit(EXIT_EMPTY);
 		}
 		execvp(cmd[0], cmd);

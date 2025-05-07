@@ -737,9 +737,9 @@ bool signalcheck (int status) {
 													/* Working Functions */
 //------------------------------------------------------------------------------------------------------------------------------//
 void dryfile(FILE* file, int pflg, int cmdflg, int argc, char** argv, int optind) {
-	// redo this thing with split_space_not_quote
 	int jobnum = 1;
 	char buffer[100];	
+	int totaljobs = count_jobs(file);
 	rewind(file);
 	if (cmdflg) {
 		COMMAND cmd = parse_cmd(argc, argv, optind);
@@ -758,7 +758,7 @@ void dryfile(FILE* file, int pflg, int cmdflg, int argc, char** argv, int optind
 				fprintf(stdout, " %s", buffer2[i]);
 			}
 
-			if (pflg) {
+			if (pflg && jobnum != totaljobs) {
 				fprintf(stdout, " |\n");
 			}
 			else {
@@ -832,11 +832,11 @@ void drynoarg (int argc, char** argv, int optind) {
 	}
 	while (fgets(buffer, sizeof(buffer), stdin) != NULL) {
 		int numtokens;
-		char** outstr = split_space_not_quote(buffer, &numtokens); // should prob append to a new array and print that whole thing instead
+		char** outstr = split_space_not_quote(buffer, &numtokens); 
 		fprintf(stdout, "%d: ", jobnum);
-		print_array(argc-optind, cmd_array);
-		fprintf(stdout, " ");
-		print_array(numtokens, outstr); // something missing here but should definitely split_space_not_quote
+		char** output_array = append_to_array(cmd_array, outstr);
+		free(outstr);
+		print_array(argc - optind + numtokens, output_array);
 		fprintf(stdout, "\n");
 		jobnum++;
 	}

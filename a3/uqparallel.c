@@ -67,7 +67,7 @@ const char* abort_err_msg = "uqparallel: aborting because of execution failure.\
 
 */
 
-// SHOULD NOT BE PRINTING ANYTHING TO STDER???
+// use getline()
 
 void sigfunc(int s);
 void cmd_err();
@@ -389,7 +389,7 @@ int main(int argc, char* argv[]) {
 		COMMAND cmd = parse_cmd(argc, argv, optind);
 		exit_status = stdinloop(cmd);
 	}
-	else {
+	else if (argc != 1) {
 		exit_status = no_args();
 	}
 
@@ -991,15 +991,7 @@ int no_args(void) {
 	}
 
 	// WAIT FOR DEATH
-	for (int i = 0 ; i < jobcount ; i++) {
-		if (waitpid(-1, &status, 0) > 0) {
-			if (WIFSIGNALED(status)) {
-				status = EXIT_SIGNAL;
-				break;
-			}
-		}	
-	}
-	
+	status = wait_children(jobcount);	
 	// FREEING MEMORY 
 	//free(pids);
 	free(cmd_array);
@@ -1112,14 +1104,7 @@ int stdinloop (COMMAND input) {
 	}
 
 	// WAIT FOR DEATH
-	for (int i = 0 ; i < jobcount ; i++) {
-		waitpid(-1, &status, 0);
-		if (WIFSIGNALED(status)) {
-			status = EXIT_SIGNAL;
-			break;
-		}
-	}
-
+	status = wait_children(jobcount);
 	//FREE'ing 
 	free(cmd_array);
 	return status;

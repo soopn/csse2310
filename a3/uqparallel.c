@@ -88,7 +88,8 @@ bool quote_check (char* string);
 void print_array(int size, char* array[]);
 char** append_to_array (char** array1 , char** array2);
 int spawn_child_exec (char** cmd);
-void free2darray (char** argv, int argc);
+void free_array2d (char** array, int size);
+void free_array3d (char*** array, int size1, int size2);
 COMMAND parse_cmd (int argc, char** argv, int optind);
 COMMAND parse_options (int argc, char** argv);
 char*** parse_cmd_file(FILE *file, int jobcount);
@@ -165,12 +166,8 @@ int main(int argc, char* argv[]) {
 
 
 	if (argc > 1 && cmd_check(argv[1],options)) {
-		
 		if (strcmp(argv[1], "") == 0) {
 			cmd_err();
-		}
-		else {
-			exit_status = no_args();	
 		}
 	}
 
@@ -358,6 +355,9 @@ int main(int argc, char* argv[]) {
 		}
 		else { // NO CMD GIVEN
 			char*** exec_array = calloc(pertask_args_count, sizeof(char**));
+			for (int i = 0 ; i < pertask_args_count ; i++) {
+				exec_array[i] = malloc(sizeof(char*));
+			}
 
 			for (int i = 0 ; i < pertask_args_count ; i++) {
 				exec_array[i][0] = strdup(pertask_args[i]);
@@ -378,16 +378,15 @@ int main(int argc, char* argv[]) {
 			}
 
 			// FREE'ing
-			for (int i = 0 ; i < pertask_args_count ; i++) {
-				free(exec_array[i][0]);
-			}
-			free(exec_array);
-
+			free_array3d(exec_array, pertask_args_count, 1);
 		}
 	}
 	else if (cmdflg) {
 		COMMAND cmd = parse_cmd(argc, argv, optind);
 		exit_status = stdinloop(cmd);
+	}
+	else {
+		exit_status = no_args();
 	}
 
 	// FREE MEMORY
@@ -739,12 +738,22 @@ char*** parse_cmd_file(FILE *file, int jobcount) {
 	return exec_array;
 }
 
-void free2darray (char** argv, int argc) {
+void free_array2d (char** array, int size) {
 	for (int i = 0 ; i < argc ; i++) {
 		free(argv[i]);
 	}
 	free(argv);
 }
+
+void free_array3d (char** array, int size1, int size2) {
+	for (int i = 0 ; i < size ; i++) {
+		for (int j = 0 ; j < size2 ; j++) {
+			free(array[i][j]);
+		}
+	}
+	free(array);
+}
+
 
 int spawn_child_loop (pid_t* pids, char** cmd, int N) { // returns exit status of children as int	
 	int status;

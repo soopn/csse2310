@@ -67,8 +67,6 @@ const char* abort_err_msg = "uqparallel: aborting because of execution failure.\
 
 */
 
-// use getline()
-
 void sigfunc(int s);
 void cmd_err();
 int isnum(char* string);
@@ -399,7 +397,6 @@ int main(int argc, char* argv[]) {
 	}
 	free(pertask_args);
 	free(filename);
-	//if (argc == 1) for ./uqparallel case
 	exit(exit_status);
 }
 
@@ -537,12 +534,15 @@ char* remove_NL (char* string) {
 }
 
 int count_jobs (FILE *file) { // NEEDS TO rewind() BEFORE NEXT fgets() use
-	char buffer[50];
-	int lines = 0;
-	while(fgets(buffer, sizeof(buffer), file) != NULL) {
-		lines++;
+	char* line = NULL;
+	size_t bufLen = 0;
+	ssize_t nread;
+	int tally = 0;
+	while((nread = getline(&line, &bufLen, file)) != -1) {
+		tally++;
 	}
-	return lines;
+	free(line);
+	return tally;
 }
 
 int count_cmd (char** cmdlines) {
@@ -719,14 +719,16 @@ COMMAND parse_cmd (int argc, char** argv, int optind) {
 
 // returns array of commands from file
 char*** parse_cmd_file(FILE *file, int jobcount) {
-	char buffer[50];
+	char* buffer = NULL;
+	size_t len = 0;
+	ssize_t nLines;
 	int index = 0;
 	int numtokens;
 
 	char*** exec_array = malloc(jobcount * sizeof(char**)); // stores pointers to cmd_array in array
 
 	// GET STRING FROM FILE AND STORE IN ARRAY
-	while (fgets(buffer, sizeof(buffer), file)) {
+	while ((nLines = getline(&buffer, &len, file)) != -1) {
 		char* strbuffer = remove_NL(buffer);
 		if (!strcmp(strbuffer, "")) {
 			exec_array[index];
@@ -785,22 +787,24 @@ int wait_children (int numChildren) {
 													/* Working Functions */
 //------------------------------------------------------------------------------------------------------------------------------//
 void dryfile(FILE* file, int pflg, int cmdflg, int argc, char** argv, int optind) { // rewrite this with append_to_array
+	char* buffer = NULL;
+	size_t len = 0;
+	ssize_t nLines;
 	int jobnum = 1;
-	char buffer[100];	
 	int totaljobs = count_jobs(file);
 	rewind(file);
 	if (cmdflg) {
 		COMMAND cmd = parse_cmd(argc, argv, optind);
-		while (fgets(buffer, sizeof(buffer), file) != NULL) { //failing 4.8 cmd stuck to the file arg, needs to include the ""???
+		while ((nLines = getline(&buffer, &len, file)) != -1) {
 			int numtokens;
 			char* buffer1 = remove_NL(buffer);
 			char** file_args = split_space_not_quote(buffer1, &numtokens);
 
 			char** output_array = append_to_array(cmd.array, file_args);
-			int len = cmd.length + numtokens;
+			int array_length = cmd.length + numtokens;
 			
 			fprintf(stdout, "%d: ", jobnum);
-			print_array(len, output_array);
+			print_array(array_length, output_array);
 
 			if (pflg && jobnum < totaljobs) {
 				fprintf(stdout, " |\n");
@@ -814,14 +818,14 @@ void dryfile(FILE* file, int pflg, int cmdflg, int argc, char** argv, int optind
 	free(cmd.array);
 	}
 	else {
-		while (fgets(buffer, sizeof(buffer), file) != NULL) {
+		while ((nLines = getline(&buffer, &len, file)) != -1) {
 			int numtokens;
 			char* temp = remove_NL(buffer);
 			char** newstring = split_space_not_quote(temp, &numtokens);
 			fprintf(stdout, "%d: ", jobnum);
 			print_array(numtokens, newstring);
 
-			if (pflg) {
+			if (pflg && jobnum < totaljobs) {
 				fprintf(stdout, " |\n");
 			}
 			else {
@@ -867,14 +871,16 @@ void drypt (int argc, char** argv, char** pt_args, int pt_arg_count, int optind,
 }
 
 void drynoarg (int argc, char** argv, int optind) {
+	char* buffer = NULL;
+	size_t len = 0;
+	ssize_t nLines;
 	int jobnum = 1;
-	char buffer[100];
 	char** cmd_array = malloc((argc-optind) * sizeof(char*)); //might be unecessary
 	
 	for (int i = 0 ; i < (argc-optind) ; i++) {
 		cmd_array[i] = strdup(argv[optind+i]);
 	}
-	while (fgets(buffer, sizeof(buffer), stdin) != NULL) {
+	while ((nLines = getline(&buffer, &len, stdin)) != -1) {
 		int numtokens;
 		char** outstr = split_space_not_quote(buffer, &numtokens); 
 		fprintf(stdout, "%d: ", jobnum);
@@ -962,7 +968,9 @@ void argsfile(FILE *file, int pflg, int jobcount, int mflg, int maxjobs) {
 */
 
 int no_args(void) {
-	char buffer[100];
+	char* buffer = NULL;
+	size_t len = 0;
+	ssize_t nLines;
 	int index = 0;
 	int numtokens;
 	int jobcount = 1;
@@ -971,7 +979,7 @@ int no_args(void) {
 	char*** cmd_array = malloc(jobcount * sizeof(char**)); // stores cmds in array 
 
 	// GET STRING FROM FILE AND STORE IN ARRAY
-	while (fgets(buffer, sizeof(buffer), stdin)) {
+	while ((nLines = getline(&buffer, &len, stdin)) != -1) {
 		char* strbuffer = remove_NL(buffer);
 		if (!strcmp(strbuffer,"")) {
 			status = EXIT_EMPTY;
@@ -1081,7 +1089,9 @@ void pipeline(char*** command_vector, int cmdcount) {
 }
 
 int stdinloop (COMMAND input) {
-	char buffer[50];
+	char* buffer = NULL;
+	size_t len = 0;
+	ssize_t nLines;
 	int numtokens;
 	int index = 0;
 	int jobcount = 1;
@@ -1089,7 +1099,7 @@ int stdinloop (COMMAND input) {
 
 	char*** cmd_array = malloc(jobcount * sizeof(char**));
 
-	while (fgets(buffer, sizeof(buffer), stdin)) {
+	while ((nLines = getline(&buffer, &len, stdin)) != -1) {
 		char* strbuffer = remove_NL(buffer);
 		char** cmds = split_space_not_quote(strbuffer, &numtokens);
 		

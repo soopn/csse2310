@@ -303,8 +303,13 @@ int main(int argc, char* argv[]) {
 			for (int i = 0 ; i < jobcount ; i++) {
 				exec_array[i] = append_to_array(cmd.array, file_cmd_array[i]);
 			}
-			for (int i = 0 ; i < jobcount ; i++) {
-				exit_status = spawn_child_exec(exec_array[i]);
+			if (pflg) {
+				pipeline(exec_array, jobcount);
+			}
+			else {
+				for (int i = 0 ; i < jobcount ; i++) {
+					exit_status = spawn_child_exec(exec_array[i]);
+				}
 			}
 			
 			exit_status = wait_children(jobcount);

@@ -100,7 +100,7 @@ void drynoarg (int argc, char** argv, int optind);
 void argsfile(FILE *file, int pflg, int jobcount, int mflg, int maxjobs); 	
 int no_args(void); 
 int stdinloop (COMMAND cmd);
-int spawn_maxjobs(int totaljobs, int maxjobs, char*** cmd);
+int spawn_maxjobs(int totaljobs, int maxjobs, char*** exec_array);
 void pipeline(char*** command_vector, int cmdcount);
 
 // SA_NOCLDSTOP signal so only checks if child dies not if child stops
@@ -334,7 +334,8 @@ int main(int argc, char* argv[]) {
 				pipeline(exec_array, pertask_args_count);
 			}
 			else if (mflg) {
-				spawn_maxjobs(pertask_args_count, maxjobs, exec_array);
+				exit_status = spawn_maxjobs(pertask_args_count, maxjobs, exec_array);
+				exit_status = wait_children(pertask_args_count);
 			}
 			else {
 				for (int i = 0 ; i < pertask_args_count ; i++) {
@@ -667,7 +668,7 @@ char** append_to_array (char** array1 , char** array2) {
 }
 			
 
-int spawn_child_exec (char** cmd) {
+ spawn_child_exec (char** cmd) {
 	if (cmd == NULL) {
 		return EXIT_EMPTY; 
 	}
@@ -777,17 +778,18 @@ bool signalcheck (int status) {
 
 int wait_children (int numChildren) {
 	int status;
+	int exit_status = EXIT_EMPTY;
 	for (int i = 0 ; i < numChildren ; i++) {
 		if (waitpid(-1, &status, 0) > 0) {
 			if (WIFEXITED(status)) {
-				return WEXITSTATUS(status);
+				exit_status = WEXITSTATUS(status);
 			}
 			else if (WIFSIGNALED(status)) {
-				return WTERMSIG(status);
+				exit_status = WTERMSIG(status);
 			}
 		}
 	}
-	return EXIT_EMPTY;
+	return exit_status;
 }
 													/* Working Functions */
 //------------------------------------------------------------------------------------------------------------------------------//
@@ -1011,14 +1013,14 @@ int no_args(void) {
 	return status;
 }
 
-int spawn_maxjobs(int totaljobs, int maxjobs, char*** cmd) {
+int spawn_maxjobs(int totaljobs, int maxjobs, char*** exec_array) {
 	int numChildren = 0;
 	int jobnum = 0;
 	int status;
 	
 	while (jobnum < totaljobs) { // unsure if <=
 		if (numChildren < maxjobs) {
-			status = spawn_child_exec(cmd[jobnum]);
+			status = spawn_child_exec(exec_array[jobnum]);
 			jobnum++;
 			numChildren++;
 		}

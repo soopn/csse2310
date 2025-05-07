@@ -331,6 +331,7 @@ int main(int argc, char* argv[]) {
 		if (cmdflg) {
 			COMMAND cmd = parse_cmd(argc, argv, optind);
 			char*** exec_array = pertask_append(pertask_args, cmd.array, cmd.length, pertask_args_count);
+			int status;
 			
 			if (pflg){
 				pipeline(exec_array, pertask_args_count);
@@ -344,7 +345,16 @@ int main(int argc, char* argv[]) {
 				}
 
 				// WAITING
-				wait(0);
+				for (int i = 0 ; i < pertask_args_count ; i++) {
+					if (waitpid(-1, &status, 0) > 0) {
+						if (WIFEXITED(status)) {
+							exit_status = WEXITSTATUS(status);
+						}
+						if (WIFSIGNALED(status)) {
+							exit_status = WTERMSIG(status);
+						}
+					}
+				}
 			}
 
 			//FREE'ing
@@ -355,6 +365,7 @@ int main(int argc, char* argv[]) {
 		}
 		else { // NO CMD GIVEN
 			char*** exec_array = calloc(pertask_args_count, sizeof(char**));
+			int status;
 			for (int i = 0 ; i < pertask_args_count ; i++) {
 				exec_array[i] = malloc(sizeof(char*));
 			}
@@ -373,7 +384,15 @@ int main(int argc, char* argv[]) {
 				
 				// WAITING
 				for (int i = 0 ; i < pertask_args_count ; i++) {
-					waitpid(-1, &exit_status, WNOHANG);
+					if (waitpid(-1, &status, WNOHANG) > 0) {
+						if (WIFEXITED(status)) {
+							exit_status = WEXITSTATUS(status);
+							break;
+						}
+						if (WIFSIGNALED(status)) {
+							exit_status = WTERMSIG(status);
+						}
+					}
 				}
 			}
 

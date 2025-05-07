@@ -739,14 +739,14 @@ char*** parse_cmd_file(FILE *file, int jobcount) {
 }
 
 void free_array2d (char** array, int size) {
-	for (int i = 0 ; i < argc ; i++) {
-		free(argv[i]);
+	for (int i = 0 ; i < size ; i++) {
+		free(array[i]);
 	}
-	free(argv);
+	free(array);
 }
 
-void free_array3d (char** array, int size1, int size2) {
-	for (int i = 0 ; i < size ; i++) {
+void free_array3d (char*** array, int size1, int size2) {
+	for (int i = 0 ; i < size1 ; i++) {
 		for (int j = 0 ; j < size2 ; j++) {
 			free(array[i][j]);
 		}

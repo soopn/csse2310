@@ -44,7 +44,7 @@ const char* usage_err_msg = "Usage: ./uqparallel [--dryrun] [--abort-on-error] [
 const char* abort_err_msg = "uqparallel: aborting because of execution failure.\n";
 ///////////////////////////////////////////////////////////////////////////////
 
-/* MAXJOBS
+/* MAXJOBS (failing on maxjobs = 1)
   
  * have an if mflg thing that is a while loop instead of a for loop
  * and have a check to spawn children only while the number is less than the max*
@@ -94,7 +94,7 @@ void dryfile(FILE* file, int pflg, int cmdflg, int argc, char** argv, int optind
 void drypt (int argc, char** argv, char** pt_args, int pt_arg_count, int optind, int pflg);
 void drynoarg (int argc, char** argv, int optind);
 void argsfile(FILE *file, int pflg, int jobcount, int mflg, int maxjobs); 	
-int no_args(void); 
+void no_args(void); 
 int stdinloop (COMMAND cmd);
 int spawn_maxjobs(int totaljobs, int maxjobs, char*** cmd);
 void pipeline(char*** command_vector, int cmdcount);
@@ -114,7 +114,7 @@ int main(int argc, char* argv[]) {
 	int exit_status = 0;
 
 	if (argc == 1) {
-		exit_status = no_args();
+		no_args();
 	}
 
 	/* Possible implementation
@@ -167,7 +167,7 @@ int main(int argc, char* argv[]) {
 			cmd_err();
 		}
 		else {
-			//no_args();	
+			no_args();	
 		}
 	}
 
@@ -386,12 +386,6 @@ int main(int argc, char* argv[]) {
 		COMMAND cmd = parse_cmd(argc, argv, optind);
 		exit_status = stdinloop(cmd);
 	}
-
-	else {
-		exit_status = no_args();		
-	}
-	
-
 
 	// FREE MEMORY
 	for (int i = 0 ; i < pertask_args_count ; i++) {
@@ -646,11 +640,11 @@ int spawn_child_exec (char** cmd) {
 			fprintf(stderr, empty_cmd_msg); 
 			exit(EXIT_EMPTY);
 		}
+		int fd = open("/dev/null", O_WRONLY);
+		dup2(fd, STDERR_FILENO);
+		close(fd);
 		execvp(cmd[0], cmd);
-		fprintf(stderr, "uqparallel: \"%s\" not able to be executed\n", cmd[0]);
-		fflush(stderr);
-		fflush(stdout);
-		//kill(getpid(), SIGUSR1); SOMEHOW FAILS 5.6.stderr
+		raise(SIGUSR1);	
 		//exit(9999999); // for checking
 		
 	}
@@ -915,7 +909,7 @@ void argsfile(FILE *file, int pflg, int jobcount, int mflg, int maxjobs) {
  * 
 */
 
-int no_args(void) {
+void no_args(void) {
 	char buffer[100];
 	int index = 0;
 	int numtokens;
@@ -927,6 +921,10 @@ int no_args(void) {
 	// GET STRING FROM FILE AND STORE IN ARRAY
 	while (fgets(buffer, sizeof(buffer), stdin)) {
 		char* strbuffer = remove_NL(buffer);
+		if (!strcmp(strbuffer,"")) {
+			status = EXIT_EMPTY;
+			continue;
+		}
 		char** cmds = split_space_not_quote(strbuffer, &numtokens);
 		
 		if (jobcount > 1) {
@@ -937,21 +935,23 @@ int no_args(void) {
 		status = spawn_child_exec(cmd_array[index]);
 		index++;
 		jobcount++;
+		free(cmds);
 	}
 
 	// WAIT FOR DEATH
 	for (int i = 0 ; i < jobcount ; i++) {
-		waitpid(-1, &status, 0);	
-		if (WIFSIGNALED(status)) {
-			status = EXIT_SIGNAL;
-			break;
-		}
+		if (waitpid(-1, &status, 0) > 0) {
+			if (WIFSIGNALED(status)) {
+				status = EXIT_SIGNAL;
+				break;
+			}
+		}	
 	}
 	
 	// FREEING MEMORY 
 	//free(pids);
 	free(cmd_array);
-	return status;
+	exit(status);
 }
 
 int spawn_maxjobs(int totaljobs, int maxjobs, char*** cmd) {

@@ -83,6 +83,9 @@ int count_jobs (FILE *file);
 int count_cmd (char** cmdlines);
 int adjust_argc (int argc, char* argv[]);
 int min(int x, int y);
+void print_string_with_quotes (char* string);
+bool quote_check (char* string);
+void print_array(int size, char* array[]);
 char** append_to_array (char** array1 , char** array2);
 int spawn_child_exec (char** cmd);
 void free2darray (char** argv, int argc);
@@ -478,19 +481,44 @@ bool cmd_check (char* cmd, struct option options[]) { // returns true if is a co
 	return false;
 }
 
+void print_string_with_quotes (char* string) {
+	fprintf(stdout, "\"");
+	fprintf(stdout, "%s", string);
+	fprintf(stdout, "\"");
+}
+bool quote_check (char* string) {
+	for (int i = 0 ; i < (int)strlen(string) ; i++) {
+		if (strstr(string, " ")) {
+			return true;
+		}
+	}
+	return false;
+}
+
 void print_array(int size, char* array[]) { // prints array separated by whitespace
 	char* buffer;
 	char* newstr;
 	for (int i = 0 ; i < size ; i++) {
 		buffer = strdup(array[i]);
 		newstr = remove_NL(buffer);	
-		if (i == size - 1) {
-			fprintf(stdout, "%s", newstr);
+		if (quote_check(array[i])) {
+			if (i == size - 1) {
+				print_string_with_quotes(newstr);
+			}
+			else {
+				print_string_with_quotes(newstr);
+				fprintf(stdout, " ");
+			}
 		}
 		else {
-			fprintf(stdout, "%s ", newstr);
+			if (i == size - 1) {
+				fprintf(stdout, "%s", newstr);
+			}
+			else {
+				fprintf(stdout, "%s ", newstr);
+			}
+			free(buffer);
 		}
-		free(buffer);
 	}
 }
 
@@ -736,7 +764,7 @@ bool signalcheck (int status) {
 }
 													/* Working Functions */
 //------------------------------------------------------------------------------------------------------------------------------//
-void dryfile(FILE* file, int pflg, int cmdflg, int argc, char** argv, int optind) {
+void dryfile(FILE* file, int pflg, int cmdflg, int argc, char** argv, int optind) { // rewrite this with append_to_array
 	int jobnum = 1;
 	char buffer[100];	
 	int totaljobs = count_jobs(file);
@@ -746,26 +774,22 @@ void dryfile(FILE* file, int pflg, int cmdflg, int argc, char** argv, int optind
 		while (fgets(buffer, sizeof(buffer), file) != NULL) { //failing 4.8 cmd stuck to the file arg, needs to include the ""???
 			int numtokens;
 			char* buffer1 = remove_NL(buffer);
-			char** buffer2 = split_space_not_quote(buffer1, &numtokens);
+			char** file_args = split_space_not_quote(buffer1, &numtokens);
+
+			char** output_array = append_to_array(cmd.array, file_args);
+			int len = cmd.length + numtokens;
 			
-			fprintf(stdout, "%d: %s", jobnum, cmd.array[0]);
-					 
-			for (int i = 1 ; i < cmd.length; i++) {
-				fprintf(stdout, " %s", cmd.array[i]);
-			}
+			fprintf(stdout, "%d: ", jobnum);
+			print_array(len, output_array);
 
-			for (int i = 0 ; i < numtokens; i++) {
-				fprintf(stdout, " %s", buffer2[i]);
-			}
-
-			if (pflg && jobnum != totaljobs) {
+			if (pflg && jobnum < totaljobs) {
 				fprintf(stdout, " |\n");
 			}
 			else {
 				fprintf(stdout, "\n");
 			}
 		jobnum++;
-		free(buffer2);
+		free(file_args);
 		}
 	free(cmd.array);
 	}
@@ -806,7 +830,7 @@ void drypt (int argc, char** argv, char** pt_args, int pt_arg_count, int optind,
 	while (jobnum <= pt_arg_count) {
 		fprintf(stdout, "%d: ", jobnum);
 		print_array(cmd_count + 1, exec_array[jobnum-1]); // smells like a segfault
-		if (pflg) {
+		if (pflg && jobnum < pt_arg_count) {
 			fprintf(stdout, " |\n");
 		}
 		else {

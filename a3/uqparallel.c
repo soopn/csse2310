@@ -88,6 +88,7 @@ bool quote_check (char* string);
 void print_array(int size, char* array[]);
 char** append_to_array (char** array1 , char** array2);
 int spawn_child_exec (char** cmd);
+pid_t spawn_child_loop (pid_t* pids, char** cmd, int N); 
 void free_array2d (char** array, int size);
 void free_array3d (char*** array, int size1, int size2);
 int wait_children (int numChildren);
@@ -297,9 +298,8 @@ int main(int argc, char* argv[]) {
 
 		if (cmdflg) { // cmd present with file
 			COMMAND cmd = parse_cmd(argc, argv, optind);
-			int status;
 			pid_t* pids = malloc(jobcount * sizeof(pid_t));
-			char*** file_cmd_array = parse_cmd_file(inputFile, jobcount);
+			char*** file_cmd_array = parse_cmd_file(inputFile, jobcount); // screws with cmd above
 			char*** exec_array = malloc(jobcount * sizeof(char**));
 
 			for (int i = 0 ; i < jobcount ; i++) {
@@ -308,18 +308,12 @@ int main(int argc, char* argv[]) {
 			for (int i = 0 ; i < jobcount ; i++) {
 				exit_status = spawn_child_exec(exec_array[i]);
 			}
+			
+			exit_status = wait_children(jobcount);
 
-			for (int i = 0 ; i < jobcount ; i++ ) {
-				waitpid(pids[i], &status, 0);
-			}	
-
-			// FREE'ing
-			for (int i = 0 ; i < jobcount ; i++) {
-				free(exec_array[i]);
-			}
 			free(file_cmd_array);
 			free(exec_array);
-			free(pids);
+			//free(pids); // causes error
 		}
 		else {
 			argsfile(inputFile, pflg, jobcount, mflg, maxjobs);
@@ -332,7 +326,6 @@ int main(int argc, char* argv[]) {
 		if (cmdflg) {
 			COMMAND cmd = parse_cmd(argc, argv, optind);
 			char*** exec_array = pertask_append(pertask_args, cmd.array, cmd.length, pertask_args_count);
-			int status;
 			
 			if (pflg){
 				pipeline(exec_array, pertask_args_count);
@@ -663,7 +656,7 @@ char** append_to_array (char** array1 , char** array2) {
 	return buffer;
 /*
  	for (int i = 0 ; i < len1 + len2 ; i++){
-		free(array1[i]);
+		free(buffer[i]);
 	}
  															*/
 }
@@ -674,19 +667,28 @@ int spawn_child_exec (char** cmd) {
 		return EXIT_EMPTY; 
 	}
 	if (!fork()) {
+		close(STDERR_FILENO);
 		if (!strcmp(cmd[0],"") || cmd[0] == NULL){
-			fprintf(stderr, empty_cmd_msg); 
 			exit(EXIT_EMPTY);
 		}
-		int fd = open("/dev/null", O_WRONLY);
-		dup2(fd, STDERR_FILENO);
-		close(fd);
 		execvp(cmd[0], cmd);
 		raise(SIGUSR1);	
 		//exit(9999999); // for checking
 		
 	}
 	return 0; 
+}
+ 
+pid_t spawn_child_pid_array (char** cmd, int N) { // dont know if this works
+	pid_t pid;
+	if (!(pid = fork())) {
+		if (!strcmp(cmd[0],"") || cmd[0] == NULL) {
+			exit(EXIT_EMPTY);
+		}
+		execvp(cmd[0], cmd);
+		raise(SIGUSR1);
+	}
+	return pid;
 }
 
 // parses comands from argv from the optind which points at the last option argument
@@ -721,31 +723,26 @@ char*** parse_cmd_file(FILE *file, int jobcount) {
 	int index = 0;
 	int numtokens;
 
-	char** cmd_array = malloc(jobcount * sizeof(char*)); // stores cmds in array rather than char**
 	char*** exec_array = malloc(jobcount * sizeof(char**)); // stores pointers to cmd_array in array
 
 	// GET STRING FROM FILE AND STORE IN ARRAY
 	while (fgets(buffer, sizeof(buffer), file)) {
 		char* strbuffer = remove_NL(buffer);
 		if (!strcmp(strbuffer, "")) {
-			exec_array[index][0] = NULL;
+			exec_array[index];
 			continue;
 		}
 		char** cmds = split_space_not_quote(strbuffer, &numtokens);
 
-		for (int x = 0 ; x < numtokens+1; x++) {	
-			cmd_array[x] = cmds[x];
+		exec_array[index] = malloc((numtokens+1) * sizeof(char*));
+		for (int i = 0 ; i < numtokens ; i++) {
+			exec_array[index][i] = strdup(cmds[i]);
 		}
 
-		exec_array[index] = malloc((numtokens+1) * sizeof(char*) + sizeof(int)); //unsure about this one but meant to include null terminator
-		
-		for (int i = 0 ; i < numtokens ; i++) {
-			exec_array[index][i] = strdup(cmd_array[i]); 
-		}
-		exec_array[index][numtokens+1] = NULL;
+		exec_array[index][numtokens] = NULL;
 		index++;
+		free(cmds);
 	}
-	free(cmd_array);
 	return exec_array;
 }
 
@@ -765,17 +762,6 @@ void free_array3d (char*** array, int size1, int size2) {
 	free(array);
 }
 
-int spawn_child_loop (pid_t* pids, char** cmd, int N) { // returns exit status of children as int	
-	int status;
-	for (int i = 0 ; i < N ; i++) {
-		status = spawn_child_exec(cmd);
-	}
-
-	for (int i = 0 ; i < N ; i++) {
-		waitpid(-1, &status, 0);
-	}
-	return status;
-}
 
 bool signalcheck (int status) {
 	bool check = (WIFSIGNALED(status)) ? true : false;
@@ -926,22 +912,29 @@ void argsfile(FILE *file, int pflg, int jobcount, int mflg, int maxjobs) {
 		pid_t* pids = malloc(sizeof(pid_t) * jobcount);
 		
 		for (int i = 0 ; i < jobcount ; i++) {
-			if (exec_array[i][0] == NULL) {
+			if (exec_array[i] == NULL) {
 				continue;
 			}
 			if (!(pids[i] = fork())) { // look at parent and store pid in array
+				close(STDERR_FILENO);
+				if (!strcmp(exec_array[i][0],"") || exec_array[i] == NULL){
+					exit(EXIT_EMPTY);
+				}
 				execvp(exec_array[i][0], exec_array[i]); 
-				fprintf(stderr, "uqparallel: \"%s\" not able to be executed\n", exec_array[i][0]);
-				fflush(stdout);
-				exit(78); // UNSURE ABOUT THIS EXIT STATUS SHOULD TERMINATE ITSELF WITH SIGSUR
+				raise(SIGUSR1);
 			}
 		}
 
 		// WAIT FOR DEATH
 		for (int i = 0 ; i < jobcount ; i++ ) {
-			waitpid(pids[i], &status, 0);
-			if (WIFSIGNALED(status)) {
-				status = EXIT_SIGNAL;
+			if (waitpid(pids[i], &status, 0) > 0) {
+				if (WIFEXITED(status)) {
+					status = WEXITSTATUS(status);
+					break;
+				}
+				if (WIFSIGNALED(status)) {
+					status = EXIT_SIGNAL;
+				}
 			}
 		}	
 	free(pids);

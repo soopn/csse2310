@@ -94,7 +94,7 @@ void dryfile(FILE* file, int pflg, int cmdflg, int argc, char** argv, int optind
 void drypt (int argc, char** argv, char** pt_args, int pt_arg_count, int optind, int pflg);
 void drynoarg (int argc, char** argv, int optind);
 void argsfile(FILE *file, int pflg, int jobcount, int mflg, int maxjobs); 	
-void no_args(void); 
+int no_args(void); 
 int stdinloop (COMMAND cmd);
 int spawn_maxjobs(int totaljobs, int maxjobs, char*** cmd);
 void pipeline(char*** command_vector, int cmdcount);
@@ -114,7 +114,7 @@ int main(int argc, char* argv[]) {
 	int exit_status = 0;
 
 	if (argc == 1) {
-		no_args();
+		exit_status = no_args();
 	}
 
 	/* Possible implementation
@@ -167,7 +167,7 @@ int main(int argc, char* argv[]) {
 			cmd_err();
 		}
 		else {
-			no_args();	
+			exit_status = no_args();	
 		}
 	}
 
@@ -832,9 +832,10 @@ void drynoarg (int argc, char** argv, int optind) {
 	}
 	while (fgets(buffer, sizeof(buffer), stdin) != NULL) {
 		int numtokens;
-		char** outstr = split_space_not_quote(buffer, &numtokens);
+		char** outstr = split_space_not_quote(buffer, &numtokens); // should prob append to a new array and print that whole thing instead
 		fprintf(stdout, "%d: ", jobnum);
 		print_array(argc-optind, cmd_array);
+		fprintf(stdout, " ");
 		print_array(numtokens, outstr); // something missing here but should definitely split_space_not_quote
 		fprintf(stdout, "\n");
 		jobnum++;
@@ -909,12 +910,12 @@ void argsfile(FILE *file, int pflg, int jobcount, int mflg, int maxjobs) {
  * 
 */
 
-void no_args(void) {
+int no_args(void) {
 	char buffer[100];
 	int index = 0;
 	int numtokens;
 	int jobcount = 1;
-	int status;
+	int status = EXIT_EMPTY;
 
 	char*** cmd_array = malloc(jobcount * sizeof(char**)); // stores cmds in array 
 
@@ -951,7 +952,7 @@ void no_args(void) {
 	// FREEING MEMORY 
 	//free(pids);
 	free(cmd_array);
-	exit(status);
+	return status;
 }
 
 int spawn_maxjobs(int totaljobs, int maxjobs, char*** cmd) {

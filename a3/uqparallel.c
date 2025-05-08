@@ -12,7 +12,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-bool endrt = false;
+bool endRT = false;
 
 typedef struct optindex {
 	int indabort;
@@ -42,6 +42,8 @@ const int EMPTY_EXIT_CODE = 33;
 const char* empty_cmd_msg = "uqparallel: cannot execute empty command.\n";
 const char* usage_err_msg = "Usage: ./uqparallel [--dryrun] [--abort-on-error] [--maxjobs n] [--pipe] [--args-file argument-filename] [cmd [fixed-args ...]] [::: per-task-args ...]\n";
 const char* abort_err_msg = "uqparallel: aborting because of execution failure.\n";
+const char* cmd_err_msg = "uqparallel: \"%s\" not able to be executed\n";
+const char* file_err_msg = "uqparallel: Cannot open file \"%s\" for reading\n";
 ///////////////////////////////////////////////////////////////////////////////
 
 /* MAXJOBS (failing on maxjobs = 1)
@@ -89,7 +91,7 @@ pid_t spawn_child_exec (char** cmd);
 pid_t spawn_child_loop (pid_t* pids, char** cmd, int N); 
 void free_array2d (char** array, int size);
 void free_array3d (char*** array, int size1, int size2);
-int wait_children (int numChildren, pid_t last_pid);
+int wait_children (int numChildren, pid_t* pid_array, char*** exec_array);
 COMMAND parse_cmd (int argc, char** argv, int optind);
 COMMAND parse_options (int argc, char** argv);
 char*** parse_cmd_file(FILE *file, int jobcount);
@@ -100,7 +102,7 @@ void drynoarg (int argc, char** argv, int optind);
 void argsfile(FILE *file, int pflg, int jobcount, int mflg, int maxjobs); 	
 int no_args(void); 
 int stdinloop (COMMAND cmd);
-int spawn_maxjobs(int totaljobs, int maxjobs, char*** exec_array);
+pid_t* spawn_maxjobs(int totaljobs, int maxjobs, char*** exec_array);
 void pipeline(char*** command_vector, int cmdcount);
 
 // SA_NOCLDSTOP signal so only checks if child dies not if child stops
@@ -264,7 +266,7 @@ int main(int argc, char* argv[]) {
 		cmd_err();
 	}
 	if (fflg && !inputFile) {
-		fprintf(stderr, "uqparallel: Cannot open file \"%s\" for reading\n", filename);
+		fprintf(stderr, file_err_msg, filename);
 		exit(2);
 	}
 	if (argv[optind] != NULL) {
@@ -312,7 +314,7 @@ int main(int argc, char* argv[]) {
 				}
 			}
 			
-			exit_status = wait_children(jobcount, pids[jobcount]);
+			exit_status = wait_children(jobcount, pids, exec_array);
 
 			free(file_cmd_array);
 			free(exec_array);
@@ -334,8 +336,8 @@ int main(int argc, char* argv[]) {
 				pipeline(exec_array, pertask_args_count);
 			}
 			else if (mflg) {
-				pid_t last_child = spawn_maxjobs(pertask_args_count, maxjobs, exec_array);
-				exit_status = wait_children(pertask_args_count, last_child);
+				pid_t* pids = spawn_maxjobs(pertask_args_count, maxjobs, exec_array);
+				exit_status = wait_children(pertask_args_count, pids, exec_array);
 			}
 			else {
 				pid_t* pids = malloc(pertask_args_count * sizeof(pid_t));
@@ -344,7 +346,7 @@ int main(int argc, char* argv[]) {
 				}
 
 				// WAITING
-				exit_status = wait_children(pertask_args_count, pids[pertask_args_count]);
+				exit_status = wait_children(pertask_args_count, pids, exec_array);
 			}
 
 			//FREE'ing
@@ -365,7 +367,8 @@ int main(int argc, char* argv[]) {
 			}
 
 			if (mflg) {
-				spawn_maxjobs(pertask_args_count, maxjobs, exec_array);
+				pid_t* pids = spawn_maxjobs(pertask_args_count, maxjobs, exec_array);
+				exit_status = wait_children(pertask_args_count, pids, exec_array);
 			}
 			else {
 				for (int i = 0 ; i < pertask_args_count ; i++) {
@@ -411,7 +414,7 @@ int main(int argc, char* argv[]) {
 //-----------------------------------------------------------------------------------------------------------------------------------------//
 
 void sigfunc (int sig) {
-	endrt = true;
+	endRT = true;
 }
 
 void cmd_err(){
@@ -671,9 +674,13 @@ char** append_to_array (char** array1 , char** array2) {
 
 pid_t spawn_child_exec (char** cmd) {
 	if (cmd == NULL) {
-		return EXIT_EMPTY; 
+		return -1; 
 	}
-	if (!fork()) {
+	pid_t pid = fork();
+	if (pid < 0) {
+		return -1;
+	}
+	else if (pid == 0) {
 		close(STDERR_FILENO);
 		if (!strcmp(cmd[0],"") || cmd[0] == NULL){
 			exit(EXIT_EMPTY);
@@ -681,9 +688,11 @@ pid_t spawn_child_exec (char** cmd) {
 		execvp(cmd[0], cmd);
 		raise(SIGUSR1);	
 		//exit(9999999); // for checking
-		
 	}
-	return 0; 
+	else {
+		return pid;
+	}
+	return pid;
 }
  
 pid_t spawn_child_pid_array (char** cmd, int N) { // dont know if this works
@@ -777,16 +786,19 @@ bool signalcheck (int status) {
 	return check;
 }
 
-int wait_children (int numChildren, pid_t last_pid) {
+int wait_children (int numChildren, pid_t* pid_array, char*** exec_array) {
 	int status;
-	int exit_status = EXIT_EMPTY;
+	int exit_status = 0;
 	for (int i = 0 ; i < numChildren ; i++) {
-		if (waitpid(last_pid, &status, 0) > 0) {
-			if (WIFEXITED(status)) {
-				exit_status = WEXITSTATUS(status);
+		if (waitpid(pid_array[i], &status, 0) > 0) {
+			if (i == numChildren-1) {
+				if (WIFEXITED(status)) {
+					exit_status = WEXITSTATUS(status);
+				}
 			}
-			else if (WIFSIGNALED(status)) {
-				exit_status = WTERMSIG(status);
+			if (WIFSIGNALED(status)) {
+				fprintf(stderr, cmd_err_msg, exec_array[i][0]);
+				exit_status = EXIT_SIGNAL;
 			}
 		}
 	}
@@ -904,6 +916,7 @@ void drynoarg (int argc, char** argv, int optind) {
 
 void argsfile(FILE *file, int pflg, int jobcount, int mflg, int maxjobs) {
 	char*** exec_array = parse_cmd_file(file,jobcount);
+	int status = EXIT_EMPTY;
 
 	if (pflg) {
 		// RUN PIPELINE
@@ -918,9 +931,9 @@ void argsfile(FILE *file, int pflg, int jobcount, int mflg, int maxjobs) {
 
 
 	// SPAWNING CHILDREN	
-	int status;
 	if (mflg) {
-		status = spawn_maxjobs (jobcount, maxjobs, exec_array);
+		pid_t* pids = spawn_maxjobs (jobcount, maxjobs, exec_array);
+		status = wait_children(jobcount, pids, exec_array);
 	}
 	else {
 		pid_t* pids = malloc(sizeof(pid_t) * jobcount);
@@ -940,18 +953,8 @@ void argsfile(FILE *file, int pflg, int jobcount, int mflg, int maxjobs) {
 		}
 
 		// WAIT FOR DEATH
-		for (int i = 0 ; i < jobcount ; i++ ) {
-			if (waitpid(pids[i], &status, 0) > 0) {
-				if (WIFEXITED(status)) {
-					status = WEXITSTATUS(status);
-					break;
-				}
-				if (WIFSIGNALED(status)) {
-					status = EXIT_SIGNAL;
-				}
-			}
-		}	
-	free(pids);
+		status = wait_children(jobcount, pids, exec_array);
+		free(pids);
 	}
 
 	// FREE MEMORY ARRAY
@@ -1008,34 +1011,34 @@ int no_args(void) {
 	}
 
 	// WAIT FOR DEATH
-	status = wait_children(jobcount, pids[jobcount]);	
+	status = wait_children(jobcount, pids, cmd_array);	
 	// FREEING MEMORY 
 	//free(pids);
 	free(cmd_array);
 	return status;
 }
 
-pid_t spawn_maxjobs(int totaljobs, int maxjobs, char*** exec_array) {
+pid_t* spawn_maxjobs(int totaljobs, int maxjobs, char*** exec_array) {
 	int numChildren = 0;
 	int jobnum = 0;
 	int status;
-	pid_t last_child = -1;
+	pid_t* pids = malloc(totaljobs * sizeof(pid_t));
 	
 	while (jobnum < totaljobs) { // unsure if <=
 		if (numChildren < maxjobs) {
-			last_child = spawn_child_exec(exec_array[jobnum]);
+			pids[jobnum] = spawn_child_exec(exec_array[jobnum]);
 			jobnum++;
 			numChildren++;
 		}
-		if (endrt) {
+		if (endRT) {
 			pid_t pid;
 			while (pid = waitpid(-1, &status, WNOHANG), pid > 0) {
 				numChildren--;
 			}
-			endrt = false;
+			endRT = false;
 		}
 	}
-	return last_child;
+	return pids;
 }
 
 // from **cmds[] cmd1 --> cmd2 --> cmd3 --> ... --> stdout
@@ -1126,7 +1129,7 @@ int stdinloop (COMMAND input) {
 	}
 
 	// WAIT FOR DEATH
-	status = wait_children(jobcount, pids[jobcount]);
+	status = wait_children(jobcount, pids, cmd_array);
 	//FREE'ing 
 	free(cmd_array);
 	return status;

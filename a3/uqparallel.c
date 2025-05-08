@@ -371,22 +371,14 @@ int main(int argc, char* argv[]) {
 				exit_status = wait_children(pertask_args_count, pids, exec_array);
 			}
 			else {
+				pid_t* pids = malloc(pertask_args_count * sizeof(pid_t));
+
 				for (int i = 0 ; i < pertask_args_count ; i++) {
-					exit_status = spawn_child_exec(exec_array[i]);
+					pids[i] = spawn_child_exec(exec_array[i]);
 				}
 				
 				// WAITING
-				for (int i = 0 ; i < pertask_args_count ; i++) {
-					if (waitpid(-1, &status, WNOHANG) > 0) {
-						if (WIFEXITED(status)) {
-							exit_status = WEXITSTATUS(status);
-							break;
-						}
-						if (WIFSIGNALED(status)) {
-							exit_status = WTERMSIG(status);
-						}
-					}
-				}
+				exit_status = wait_children(pertask_args_count, pids, exec_array);
 			}
 
 			// FREE'ing

@@ -104,7 +104,7 @@ void argsfile(FILE *file, int pflg, int jobcount, int mflg, int maxjobs);
 int no_args(void); 
 int stdinloop (COMMAND cmd);
 pid_t* spawn_maxjobs(int totaljobs, int maxjobs, char*** exec_array);
-void pipeline(char*** command_vector, int cmdcount);
+int pipeline(char*** command_vector, int cmdcount);
 
 // SA_NOCLDSTOP signal so only checks if child dies not if child stops
 // char** split_space_not_quote(char *input, int *numtokens);
@@ -307,7 +307,7 @@ int main(int argc, char* argv[]) {
 				exec_array[i] = append_to_array(cmd.array, file_cmd_array[i]);
 			}
 			if (pflg) {
-				pipeline(exec_array, jobcount);
+				exit_status = pipeline(exec_array, jobcount);
 			}
 			else {
 				for (int i = 0 ; i < jobcount ; i++) {
@@ -334,7 +334,7 @@ int main(int argc, char* argv[]) {
 			char*** exec_array = pertask_append(pertask_args, cmd.array, cmd.length, pertask_args_count);
 			
 			if (pflg){
-				pipeline(exec_array, pertask_args_count);
+				exit_status = pipeline(exec_array, pertask_args_count);
 			}
 			else if (mflg) {
 				pid_t* pids = spawn_maxjobs(pertask_args_count, maxjobs, exec_array);
@@ -560,7 +560,6 @@ int count_cmd (char** cmdlines) {
 }
 
 char** remove_arguments (int argc, char* argv[]) {
-
 	for (int i = 1 ; i < argc ; i++) {
 		if (strstr(argv[i], ":::")) {
 			while (i != argc) {
@@ -918,7 +917,7 @@ void argsfile(FILE *file, int pflg, int jobcount, int mflg, int maxjobs) {
 
 	if (pflg) {
 		// RUN PIPELINE
-		pipeline(exec_array, jobcount);
+		status = pipeline(exec_array, jobcount);
 
 		// FREE MEMORY ARRAY
 		for (int i = 0 ; i < jobcount ; i++) {
@@ -1029,8 +1028,15 @@ pid_t* spawn_maxjobs(int totaljobs, int maxjobs, char*** exec_array) {
 	return pids;
 }
 
+void close_pipes(int cmdNum, int** fds) {
+	for (int i = 0 ; i < cmdNum - 1 ; i++) {
+		for (int j = 0 ; j < 2 ; j++) {
+			close(fds[i][j]);
+		}
+	}
+}
 // from **cmds[] cmd1 --> cmd2 --> cmd3 --> ... --> stdout
-void pipeline(char*** command_vector, int cmdcount) { // needs a wait thing 
+int pipeline(char*** command_vector, int cmdcount) { // needs a wait thing and EXIT_PIPELINE if theres something wrong
 	int** fds = malloc(cmdcount * sizeof(int*));  
 
 	for (int i = 0 ; i < cmdcount ; i++) {
@@ -1064,18 +1070,13 @@ void pipeline(char*** command_vector, int cmdcount) { // needs a wait thing
 			}
 
 			execvp(command_vector[i][0], command_vector[i]);
-			perror("ERROR IN PIPELINE");
-			exit(99);
+			close_pipes(cmdcount, fds);
+			return EXIT_PIPELINE;
 		}
 	}
 	
 	// CLOSE ALL PIPES
-	for (int i = 0 ; i < cmdcount - 1 ; i++) {
-		for (int j = 0 ; j < 2 ; j++) {
-			close(fds[i][j]);
-		}
-	}
-
+	close_pipes(cmdcount, fds);
 	// WAIT FOR CHILDREN
 	for (int i = 0 ; i < cmdcount ; i++) {
 		wait(0);
@@ -1086,7 +1087,7 @@ void pipeline(char*** command_vector, int cmdcount) { // needs a wait thing
 		free(fds[i]);
 	}
 	free(fds);
-	return;
+	return 0;
 }
 
 int stdinloop (COMMAND input) {

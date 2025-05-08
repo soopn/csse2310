@@ -14,15 +14,6 @@
 
 bool endRT = false;
 
-typedef struct optindex {
-	int indabort;
-	int indpipe;
-	int inddry;
-	int indfile;
-	int indjob;
-	int indpertask;
-} opt_index;
-
 typedef struct COMMAND {
 	char** array;
 	int length;
@@ -38,11 +29,17 @@ typedef enum {
 } ExitStatus;
 
 /////////////////////////////////////////////////////////////////////////////
-const char* empty_cmd_msg = "uqparallel: cannot execute empty command.\n";
-const char* usage_err_msg = "Usage: ./uqparallel [--dryrun] [--abort-on-error] [--maxjobs n] [--pipe] [--args-file argument-filename] [cmd [fixed-args ...]] [::: per-task-args ...]\n";
-const char* abort_err_msg = "uqparallel: aborting because of execution failure.\n";
-const char* cmd_err_msg = "uqparallel: \"%s\" not able to be executed\n";
-const char* file_err_msg = "uqparallel: Cannot open file \"%s\" for reading\n";
+const char* const empty_cmd_msg = "uqparallel: cannot execute empty command.\n";
+const char* const usage_err_msg = "Usage: ./uqparallel [--dryrun] [--abort-on-error] [--maxjobs n] [--pipe] [--args-file argument-filename] [cmd [fixed-args ...]] [::: per-task-args ...]\n";
+const char* const abort_err_msg = "uqparallel: aborting because of execution failure.\n";
+const char* const cmd_err_msg = "uqparallel: \"%s\" not able to be executed\n";
+const char* const file_err_msg = "uqparallel: Cannot open file \"%s\" for reading\n";
+const char* const fileArg = "args-file";
+const char* const maxJobsArg = "maxjobs";
+const char* const abortArg = "abort-on-error"; 
+const char* const pipeArg = "pipe";
+const char* const dryrunArg = "dryrun"; 
+const char* const ptArg = ":::";
 ///////////////////////////////////////////////////////////////////////////////
 
 /* MAXJOBS (failing on maxjobs = 1)
@@ -83,6 +80,7 @@ int count_cmd (char** cmdlines);
 int adjust_argc (int argc, char* argv[]);
 int min(int x, int y);
 void print_string_with_quotes (char* string);
+//int cmd_index (int argc, char** argv, struct option options[]);
 bool quote_check (char* string);
 void print_array(int size, char* array[]);
 char** append_to_array (char** array1 , char** array2);
@@ -149,8 +147,6 @@ int main(int argc, char* argv[]) {
 	int pertask_args_count = 0;
 	char** pertask_args = NULL;
 	char* filename = NULL;
-	opt_index option_index = {.indabort = 0, .indpipe = 0, .indpertask = 0,
-							  .inddry = 0, .indfile = 0, .indjob = 0};
 	struct sigaction sa;			// could probably put sighandler after option parsing so if abort-on-error then include SA_NOCLDSTOP
 	memset(&sa, 0, sizeof(sa));
 	sa.sa_handler = sigfunc;
@@ -161,12 +157,12 @@ int main(int argc, char* argv[]) {
 	FILE *inputFile = NULL;
 
 	static struct option options[] = {
-		{"abort-on-error", 	no_argument, 		0,	'a'},
-		{"args-file", 		required_argument, 	0,	'f'},
-		{"dryrun", 			no_argument, 		0,	'd'},
-		{"pipe", 			no_argument, 		0,	'p'},
-		{"maxjobs", 		required_argument, 	0,	'm'},
-		{0, 				0, 					0, 	0}
+		{abortArg,  	no_argument, 		0,	'a'},
+		{fileArg, 		required_argument, 	0,	'f'},
+		{dryrunArg,		no_argument, 		0,	'd'},
+		{pipeArg, 		no_argument, 		0,	'p'},
+		{maxJobsArg,	required_argument, 	0,	'm'},
+		{0, 			0, 					0, 	 0 }
 	};
 
 
@@ -183,24 +179,19 @@ int main(int argc, char* argv[]) {
 		switch (c) {
 			case 'a':	
 				abflg++;
-				printf("abort-on-error\n");
-				option_index.indabort = optind;
 				break;
 			case 'f':
 				fflg++;
-				inputFile = fopen(optarg, "r"); //might have to replace with open() later on	
+				inputFile = fopen(optarg, "r");
 				filename = strdup(optarg);
-				option_index.indfile = optind;
 				break;
 
 			case 'd':	//dryrun
 				dflg++;
-				option_index.inddry = optind;
 				break;
 
 			case 'p':	//pipe
 				pflg++;
-				option_index.indpipe = optind;
 				break;
 
 			case 'm': 	//maxjobs
@@ -211,8 +202,6 @@ int main(int argc, char* argv[]) {
 					cmd_err();
 				}
 				maxjobs = buffer;
-				option_index.indjob = optind;
-
 				break;
 				
 			case '?':
@@ -244,7 +233,6 @@ int main(int argc, char* argv[]) {
 			ptflg++;
 			errflg++;
 
-			option_index.indpertask = i; // index the location of :::
 			pertask_args_count = argc - i - 1;	
 			pertask_args = malloc(pertask_args_count * sizeof(char*)); // might need to +1 for null terminator 
 			// POPULATE ARRAY OF PERTASK ARGUMENTS
@@ -580,6 +568,33 @@ int adjust_argc (int argc, char* argv[]) {
 	}
 	return i;
 }
+
+/*
+int cmd_index (int argc, char** argv, struct option options[]) {
+	int i;
+	bool check = false;
+	for (i = 0 ; i < argc ; i++) {
+		for (int j = 0 ; j < 2 ; j++) {
+			if (strcmp(argv[i], )) {
+				i++;
+				check = true;
+				break;
+			}
+		}
+		for (int j = 0 ; j < 3 ; j++) {
+			if (strcmp(argv[i], no_option_args[j])) {
+				check = true;
+				break;
+			}
+		}
+		if (check) {
+			continue;
+		}
+		return i;
+	}
+	return 0;
+}
+*/
 
 COMMAND parse_options (int argc, char** argv) {
 	COMMAND options;
@@ -949,6 +964,7 @@ void argsfile(FILE *file, int pflg, int jobcount, int mflg, int maxjobs, int afl
 		// WAIT FOR DEATH
 		if (aflg) {
 			status = abort_on_error(pids, jobcount);
+			fprintf(stderr, abort_err_msg);
 		}
 		else {
 		status = wait_children(jobcount, pids, exec_array);

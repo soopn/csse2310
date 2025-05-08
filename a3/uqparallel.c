@@ -961,15 +961,6 @@ void argsfile(FILE *file, int pflg, int jobcount, int mflg, int maxjobs) {
 
 }
 
-// MEANT TO RUN EACH OF THE TASKS GIVEN BY STDIN, IN PARALLEL
-/* POSSIBLE IMPLEMENTATION 
- * 
- * store all commands in array like argsfile
- * fork and exec
- * create function to append a char**[] with a char*[]
- * 
-*/
-
 int no_args(void) {
 	char* buffer = NULL;
 	size_t len = 0;
@@ -977,7 +968,7 @@ int no_args(void) {
 	int index = 0;
 	int numtokens;
 	int jobcount = 1;
-	int status = EXIT_EMPTY;
+	int status = EXIT_EMPTY; // starts as empty but maybe shouldnt be
 
 	char*** cmd_array = malloc(jobcount * sizeof(char**)); // stores cmds in array 
 	pid_t* pids = malloc(jobcount * sizeof(pid_t)); // pid array
@@ -992,7 +983,7 @@ int no_args(void) {
 		char** cmds = split_space_not_quote(strbuffer, &numtokens);
 		
 		if (jobcount > 1) {
-			cmd_array = (char***)realloc(cmd_array, jobcount * sizeof(char*));
+			cmd_array = (char***)realloc(cmd_array, jobcount * sizeof(char**));
 		}
 			
 		cmd_array[index] = cmds;
@@ -1033,7 +1024,7 @@ pid_t* spawn_maxjobs(int totaljobs, int maxjobs, char*** exec_array) {
 }
 
 // from **cmds[] cmd1 --> cmd2 --> cmd3 --> ... --> stdout
-void pipeline(char*** command_vector, int cmdcount) {
+void pipeline(char*** command_vector, int cmdcount) { // needs a wait thing 
 	int** fds = malloc(cmdcount * sizeof(int*));  
 
 	for (int i = 0 ; i < cmdcount ; i++) {

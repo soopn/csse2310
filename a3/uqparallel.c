@@ -38,7 +38,6 @@ typedef enum {
 } ExitStatus;
 
 /////////////////////////////////////////////////////////////////////////////
-const int EMPTY_EXIT_CODE = 33;
 const char* empty_cmd_msg = "uqparallel: cannot execute empty command.\n";
 const char* usage_err_msg = "Usage: ./uqparallel [--dryrun] [--abort-on-error] [--maxjobs n] [--pipe] [--args-file argument-filename] [cmd [fixed-args ...]] [::: per-task-args ...]\n";
 const char* abort_err_msg = "uqparallel: aborting because of execution failure.\n";
@@ -69,7 +68,7 @@ const char* file_err_msg = "uqparallel: Cannot open file \"%s\" for reading\n";
 
 */
 
-void sigfunc(int s);
+void sigfunc();
 void cmd_err();
 int isnum(char* string);
 int option_index_calc (int optind, int abflg, int pflg, int dflg, int fflg, int mflg);
@@ -88,7 +87,7 @@ bool quote_check (char* string);
 void print_array(int size, char* array[]);
 char** append_to_array (char** array1 , char** array2);
 pid_t spawn_child_exec (char** cmd);
-pid_t spawn_child_loop (pid_t* pids, char** cmd, int N); 
+pid_t* spawn_child_array (char*** exec_array, int jobs);// dont know if this works
 void free_array2d (char** array, int size);
 void free_array3d (char*** array, int size1, int size2);
 int wait_children (int numChildren, pid_t* pid_array, char*** exec_array);
@@ -100,11 +99,14 @@ char** remove_arguments (int argc, char* argv[]);
 void dryfile(FILE* file, int pflg, int cmdflg, int argc, char** argv, int optind);
 void drypt (int argc, char** argv, char** pt_args, int pt_arg_count, int optind, int pflg);
 void drynoarg (int argc, char** argv, int optind);
-void argsfile(FILE *file, int pflg, int jobcount, int mflg, int maxjobs); 	
+void argsfile(FILE *file, int pflg, int jobcount, int mflg, int maxjobs, int aflg); 	
 int no_args(void); 
 int stdinloop (COMMAND cmd);
 pid_t* spawn_maxjobs(int totaljobs, int maxjobs, char*** exec_array);
 int pipeline(char*** command_vector, int cmdcount);
+int terminate_children (pid_t* pidArray, int childCount);
+int kill_children(pid_t* pidArray, int childCount);
+int abort_on_error(pid_t* childPids, int childCount);
 
 // SA_NOCLDSTOP signal so only checks if child dies not if child stops
 // char** split_space_not_quote(char *input, int *numtokens);
@@ -153,7 +155,7 @@ int main(int argc, char* argv[]) {
 	memset(&sa, 0, sizeof(sa));
 	sa.sa_handler = sigfunc;
 	sa.sa_flags = SA_RESTART | SA_NOCLDSTOP;
-	sigaction(SIGCHLD, &sa, 0); // i think add SIGTERM SIGUSR1
+	sigaction(SIGINT, &sa, 0); // i think add SIGTERM SIGUSR1
 
 	//option arguments
 	FILE *inputFile = NULL;
@@ -300,7 +302,7 @@ int main(int argc, char* argv[]) {
 		if (cmdflg) { // cmd present with file
 			COMMAND cmd = parse_cmd(argc, argv, optind);
 			pid_t* pids = malloc(jobcount * sizeof(pid_t));
-			char*** file_cmd_array = parse_cmd_file(inputFile, jobcount); // screws with cmd above
+			char*** file_cmd_array = parse_cmd_file(inputFile, jobcount);
 			char*** exec_array = malloc(jobcount * sizeof(char**));
 
 			for (int i = 0 ; i < jobcount ; i++) {
@@ -310,9 +312,7 @@ int main(int argc, char* argv[]) {
 				exit_status = pipeline(exec_array, jobcount);
 			}
 			else {
-				for (int i = 0 ; i < jobcount ; i++) {
-					pids[i] = spawn_child_exec(exec_array[i]);
-				}
+				pids = spawn_child_array(exec_array, jobcount);
 			}
 			
 			exit_status = wait_children(jobcount, pids, exec_array);
@@ -322,7 +322,7 @@ int main(int argc, char* argv[]) {
 			//free(pids); // causes error
 		}
 		else {
-			argsfile(inputFile, pflg, jobcount, mflg, maxjobs);
+			argsfile(inputFile, pflg, jobcount, mflg, maxjobs, abflg);
 		}
 	}
 	else if (ptflg) { // run per task arugments
@@ -406,7 +406,7 @@ int main(int argc, char* argv[]) {
 														/* Helper Functions */
 //-----------------------------------------------------------------------------------------------------------------------------------------//
 
-void sigfunc (int sig) {
+void sigfunc () {
 	endRT = true;
 }
 
@@ -663,7 +663,6 @@ char** append_to_array (char** array1 , char** array2) {
  															*/
 }
 			
-
 pid_t spawn_child_exec (char** cmd) {
 	if (cmd == NULL) {
 		return -1; 
@@ -687,16 +686,15 @@ pid_t spawn_child_exec (char** cmd) {
 	return pid;
 }
  
-pid_t spawn_child_pid_array (char** cmd, int N) { // dont know if this works
-	pid_t pid;
-	if (!(pid = fork())) {
-		if (!strcmp(cmd[0],"") || cmd[0] == NULL) {
-			exit(EXIT_EMPTY);
+pid_t* spawn_child_array (char*** exec_array, int jobs) { // dont know if this works
+	pid_t* pids = malloc(jobs * sizeof(pid_t));
+	for (int i = 0 ; i < jobs ; i++) {
+		if (endRT) {
+			break;
 		}
-		execvp(cmd[0], cmd);
-		raise(SIGUSR1);
+		pids[i] = spawn_child_exec(exec_array[i]);
 	}
-	return pid;
+	return pids;
 }
 
 // parses comands from argv from the optind which points at the last option argument
@@ -911,7 +909,7 @@ void drynoarg (int argc, char** argv, int optind) {
 	return;
 }
 
-void argsfile(FILE *file, int pflg, int jobcount, int mflg, int maxjobs) {
+void argsfile(FILE *file, int pflg, int jobcount, int mflg, int maxjobs, int aflg) {
 	char*** exec_array = parse_cmd_file(file,jobcount);
 	int status = EXIT_EMPTY;
 
@@ -925,7 +923,6 @@ void argsfile(FILE *file, int pflg, int jobcount, int mflg, int maxjobs) {
 		}
 		return;
 	}
-
 
 	// SPAWNING CHILDREN	
 	if (mflg) {
@@ -950,7 +947,12 @@ void argsfile(FILE *file, int pflg, int jobcount, int mflg, int maxjobs) {
 		}
 
 		// WAIT FOR DEATH
+		if (aflg) {
+			status = abort_on_error(pids, jobcount);
+		}
+		else {
 		status = wait_children(jobcount, pids, exec_array);
+		}
 		free(pids);
 	}
 
@@ -963,7 +965,6 @@ void argsfile(FILE *file, int pflg, int jobcount, int mflg, int maxjobs) {
 	// FREEING MEMORY 
 	free(file);
 	exit(status);
-
 }
 
 int no_args(void) {
@@ -1017,12 +1018,9 @@ pid_t* spawn_maxjobs(int totaljobs, int maxjobs, char*** exec_array) {
 			jobnum++;
 			numChildren++;
 		}
-		if (endRT) {
-			pid_t pid;
-			while (pid = waitpid(-1, &status, WNOHANG), pid > 0) {
-				numChildren--;
-			}
-			endRT = false;
+		pid_t pid;
+		while (pid = waitpid(-1, &status, WNOHANG), pid > 0) {
+			numChildren--;
 		}
 	}
 	return pids;
@@ -1038,6 +1036,7 @@ void close_pipes(int cmdNum, int** fds) {
 // from **cmds[] cmd1 --> cmd2 --> cmd3 --> ... --> stdout
 int pipeline(char*** command_vector, int cmdcount) { // needs a wait thing and EXIT_PIPELINE if theres something wrong
 	int** fds = malloc(cmdcount * sizeof(int*));  
+	int exitStatus = 0;
 
 	for (int i = 0 ; i < cmdcount ; i++) {
 		fds[i] = malloc(2 * sizeof(int));
@@ -1054,6 +1053,7 @@ int pipeline(char*** command_vector, int cmdcount) { // needs a wait thing and E
 	for (int i = 0 ; i < cmdcount ; i++) {
 		// PARENT
 		if (fork()){
+			close(STDERR_FILENO);
 			// first command gets ignored
 			if (i != 0) {
 				dup2(fds[i-1][0], STDIN_FILENO);
@@ -1070,8 +1070,7 @@ int pipeline(char*** command_vector, int cmdcount) { // needs a wait thing and E
 			}
 
 			execvp(command_vector[i][0], command_vector[i]);
-			close_pipes(cmdcount, fds);
-			return EXIT_PIPELINE;
+			exitStatus = EXIT_PIPELINE;
 		}
 	}
 	
@@ -1124,3 +1123,66 @@ int stdinloop (COMMAND input) {
 	return status;
 }
 
+bool is_alive (pid_t pid) { // reference
+	return kill(pid, 0) == 0;
+}
+
+int terminate_children (pid_t* pidArray, int childCount) {
+	int sigsSent = 0;
+	for (int i = 0 ; i < childCount ; i++) {
+		if (pidArray[i] > 0 && is_alive(pidArray[i])) {
+			kill(pidArray[i], SIGTERM);
+			sigsSent++;
+		}
+	}
+	return sigsSent;
+}
+
+
+int kill_children(pid_t* pidArray, int childCount) {
+	int sigsSent = 0;
+	for (int i = 0 ; i < childCount ; i++) { // sends SIGTERM to all children and keeps track of signals sent and to where
+		if (pidArray[i] > 0 && is_alive(pidArray[i])) {
+			kill(pidArray[i], SIGKILL);
+			sigsSent++;
+		}
+	}
+	return sigsSent;
+}
+
+
+int abort_on_error(pid_t* childPids, int childCount) { // return number of SIGTERMS to determine later if should print errmsg
+	struct timespec waitTime = {.tv_sec = 1, .tv_nsec = 0}; //ffs it doesnt stop the forking i forgot
+	sigset_t set;
+	siginfo_t info;
+	int sigsSent = 0;
+	int exitStatus = 0;
+
+	sigemptyset(&set); // blocks SIGCHLD for sigtimedwait()
+	sigaddset(&set, SIGCHLD);
+	sigprocmask(SIG_BLOCK, &set, NULL);
+
+	while (sigtimedwait(&set, &info, &waitTime) > 0) { // might be able to use regular wait
+		int status;
+		while (waitpid(-1, &status, WNOHANG) > 0) {
+			if (WIFEXITED(status) || WIFSIGNALED(status)) { // procs if exited or signalled
+				if (WEXITSTATUS(status) || WTERMSIG(status)) { // procs if nonzero exit or signalled
+					sigsSent = terminate_children(childPids, childCount);
+					exitStatus = (WIFEXITED(status)) ? WEXITSTATUS(status) : WTERMSIG(status);
+					sigfunc();
+					break;
+				}
+			}
+		}
+	}		
+	if (!sigsSent) { // wait normally later
+		return exitStatus;
+	}
+	
+	while (sigtimedwait(&set, &info, &waitTime) > 0) {
+		while (waitpid(-1, NULL, WNOHANG) > 0);
+	}
+
+	kill_children(childPids, sigsSent);
+	return exitStatus;
+}

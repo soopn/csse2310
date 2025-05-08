@@ -1004,8 +1004,7 @@ int no_args(void) {
 
 	// WAIT FOR DEATH
 	status = wait_children(jobcount, pids, cmd_array);	
-	// FREEING MEMORY 
-	//free(pids);
+	free(pids);
 	free(cmd_array);
 	return status;
 }
@@ -1126,11 +1125,4 @@ int stdinloop (COMMAND input) {
 	free(cmd_array);
 	return status;
 }
-
-
-
-
-
-
-
 

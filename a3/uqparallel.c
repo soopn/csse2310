@@ -92,6 +92,7 @@ pid_t spawn_child_loop (pid_t* pids, char** cmd, int N);
 void free_array2d (char** array, int size);
 void free_array3d (char*** array, int size1, int size2);
 int wait_children (int numChildren, pid_t* pid_array, char*** exec_array);
+int status_check (int status, char* cmd);
 COMMAND parse_cmd (int argc, char** argv, int optind);
 COMMAND parse_options (int argc, char** argv);
 char*** parse_cmd_file(FILE *file, int jobcount);
@@ -773,28 +774,33 @@ void free_array3d (char*** array, int size1, int size2) {
 }
 
 
-bool signalcheck (int status) {
-	bool check = (WIFSIGNALED(status)) ? true : false;
-	return check;
+int status_check (int status, char* cmd) {
+	if (WIFEXITED(status)) {
+		return WEXITSTATUS(status);
+	}
+	else if (WIFSIGNALED(status)) {
+		fprintf(stderr, cmd_err_msg, cmd);
+		return EXIT_SIGNAL;
+	}
+	return EXIT_EMPTY;
 }
 
 int wait_children (int numChildren, pid_t* pid_array, char*** exec_array) {
 	int status;
-	int exit_status = 0;
+	int exitStatus = EXIT_EMPTY;
+	int lastChildIndex = 0;
 	for (int i = 0 ; i < numChildren ; i++) {
 		if (waitpid(pid_array[i], &status, 0) > 0) {
-			if (i == numChildren-1) {
-				if (WIFEXITED(status)) {
-					exit_status = WEXITSTATUS(status);
-				}
+			if (i == numChildren - 1) {
+				lastChildIndex = i;
 			}
-			if (WIFSIGNALED(status)) {
-				fprintf(stderr, cmd_err_msg, exec_array[i][0]);
-				exit_status = EXIT_SIGNAL;
-			}
+			exitStatus = status_check(status, exec_array[i][0]);
 		}
 	}
-	return exit_status;
+	if (waitpid(pid_array[lastChildIndex], &status, 0) > 0) {
+		exitStatus = status_check(status, exec_array[lastChildIndex][0]);
+	}
+	return exitStatus;
 }
 													/* Working Functions */
 //------------------------------------------------------------------------------------------------------------------------------//

@@ -29,15 +29,15 @@ typedef enum {
 } ExitStatus;
 
 /////////////////////////////////////////////////////////////////////////////
-const char* empty_cmd_msg = "uqparallel: cannot execute empty command.\n";
-const char* usage_err_msg
+const char* const empty_cmd_msg = "uqparallel: cannot execute empty command.\n";
+const char* const usage_err_msg
         = "Usage: ./uqparallel [--dryrun] [--abort-on-error] [--maxjobs n] "
           "[--pipe] [--args-file argument-filename] [cmd [fixed-args ...]] "
           "[::: per-task-args ...]\n";
-const char* abort_err_msg
+const char* const abort_err_msg
         = "uqparallel: aborting because of execution failure.\n";
-const char* cmd_err_msg = "uqparallel: \"%s\" not able to be executed\n";
-const char* file_err_msg = "uqparallel: Cannot open file \"%s\" for reading\n";
+const char* const cmd_err_msg = "uqparallel: \"%s\" not able to be executed\n";
+const char* const file_err_msg = "uqparallel: Cannot open file \"%s\" for reading\n";
 const char* const fileArg = "args-file";
 const char* const maxJobsArg = "maxjobs";
 const char* const abortArg = "abort-on-error";
@@ -245,10 +245,10 @@ int main(int argc, char* argv[])
 
         if (cmdflg) { // cmd present with file
             COMMAND cmd = parse_cmd(argc, argv, optind);
-            pid_t* pids = malloc(jobCount * sizeof(pid_t));
+            pid_t* pids = (pid_t*)malloc(jobCount * sizeof(pid_t));
             char*** file_cmdArray = parse_cmd_file(
                     inputFile, jobCount); // screws with cmd above
-            char*** execArray = malloc(jobCount * sizeof(char**));
+            char*** execArray = (char***)malloc(jobCount * sizeof(char**));
 
             for (int i = 0; i < jobCount; i++) {
                 execArray[i] = append_to_array(cmd.array, file_cmdArray[i]);
@@ -493,7 +493,7 @@ COMMAND parse_options(int argc, char** argv)
 {
     COMMAND options;
     options.length = 1;
-    options.array = malloc(argc * sizeof(char*));
+    options.array = (char**)malloc(argc * sizeof(char*));
     options.array[0] = strdup(argv[0]);
 
     for (int i = 0; i < argc; i++) { // getopt_long() starts at argv[1]
@@ -524,34 +524,24 @@ COMMAND parse_options(int argc, char** argv)
 char*** pertask_append(
         char** argumentArray, char** cmds, int cmdcount, int argcount)
 { // make it append the current argv[] with the pertask arguments
-    char*** new_array
-            = malloc(argcount * sizeof(char**)); // include null terminator
+    char*** newArray
+            = (char***)malloc(argcount * sizeof(char**)); // include null terminator
 
     // ALLOCATE MEMORY
     for (int i = 0; i < argcount; i++) {
-        new_array[i] = malloc((cmdcount + 2)
+        newArray[i] = (char**)malloc((cmdcount + 2)
                 * sizeof(char*)); // include size for commands and argument and
                                   // null terminator
     }
 
     for (int i = 0; i < argcount; i++) {
         for (int j = 0; j < cmdcount; j++) {
-            new_array[i][j] = cmds[j];
+            newArray[i][j] = cmds[j];
         }
-        new_array[i][cmdcount] = argumentArray[i];
-        new_array[i][cmdcount + 1] = NULL;
+        newArray[i][cmdcount] = argumentArray[i];
+        newArray[i][cmdcount + 1] = NULL;
     }
-    return new_array;
-
-    // THINGS THAT NEED TO BE FREED
-    /*
-            for (int i = 0 ; i < argcount ; i++) {
-                    for (int j = 0 ; j < cmdcount ; j++) {
-                            free(new_array[i][j]);
-                    }
-            }
-            free(new_array);
-                                                                                                    */
+    return newArray;
 }
 
 // appends array2 to array 1
@@ -559,7 +549,7 @@ char** append_to_array(char** array1, char** array2)
 {
     int len1 = count_cmd(array1);
     int len2 = count_cmd(array2);
-    char** buffer = malloc((len1 + len2) * sizeof(char*));
+    char** buffer = (char**)malloc((len1 + len2) * sizeof(char*));
 
     for (int i = 0; i < len1; i++) {
         buffer[i] = strdup(array1[i]);
@@ -602,7 +592,7 @@ pid_t spawn_child_exec(char** cmd)
 
 pid_t* spawn_child_array(char** cmd, int N)
 { // dont know if this works
-    pid_t* pid = malloc(N * sizeof(pid_t));
+    pid_t* pid = (pid_t*)malloc(N * sizeof(pid_t));
     for (int i = 0; i < N; i++) {
         pid[i] = spawn_child_exec(cmd);
     }
@@ -613,7 +603,7 @@ pid_t* spawn_child_array(char** cmd, int N)
 // argument
 COMMAND parse_cmd(int argc, char** argv, int optind)
 {
-    char** buffer = malloc(sizeof(char*) * (argc - 1));
+    char** buffer = (char**)malloc(sizeof(char*) * (argc - 1));
     int index = 0;
     COMMAND command;
     int numtokens;
@@ -646,7 +636,7 @@ char*** parse_cmd_file(FILE* file, int jobCount)
     int index = 0;
     int numtokens;
 
-    char*** execArray = malloc(
+    char*** execArray = (char***)malloc(
             jobCount * sizeof(char**)); // stores pointers to cmdArray in array
 
     // GET STRING FROM FILE AND STORE IN ARRAY
@@ -658,7 +648,7 @@ char*** parse_cmd_file(FILE* file, int jobCount)
         }
         char** cmds = split_space_not_quote(strbuffer, &numtokens);
 
-        execArray[index] = malloc((numtokens + 1) * sizeof(char*));
+        execArray[index] = (char**)malloc((numtokens + 1) * sizeof(char*));
         for (int i = 0; i < numtokens; i++) {
             execArray[index][i] = strdup(cmds[i]);
         }
@@ -776,8 +766,8 @@ void drypt(int argc, char** argv, char** ptArgs, int ptArgsCount, int optind,
     int jobNum = 1;
     int cmdCount = argc - optind;
 
-    char*** execArray = malloc(ptArgsCount * sizeof(char**));
-    char** cmdArray = malloc(cmdCount * sizeof(char*));
+    char*** execArray = (char***)malloc(ptArgsCount * sizeof(char**));
+    char** cmdArray = (char**)malloc(cmdCount * sizeof(char*));
 
     // POPULATE ARRAY OF COMMANDS
     for (int i = 0; i < cmdCount; i++) {
@@ -813,7 +803,7 @@ void drynoarg(int argc, char** argv, int optind)
     ssize_t nLines;
     int jobNum = 1;
     char** cmdArray
-            = malloc((argc - optind) * sizeof(char*)); // might be unecessary
+            = (char**)malloc((argc - optind) * sizeof(char*)); // might be unecessary
 
     for (int i = 0; i < (argc - optind); i++) {
         cmdArray[i] = strdup(argv[optind + i]);
@@ -850,7 +840,7 @@ void argsfile(FILE* file, int pflg, int jobCount, int mflg, int maxJobs)
         pid_t* pids = spawn_maxJobs(jobCount, maxJobs, execArray);
         status = wait_children(jobCount, pids, execArray);
     } else {
-        pid_t* pids = malloc(sizeof(pid_t) * jobCount);
+        pid_t* pids = (pid_t*)malloc(sizeof(pid_t) * jobCount);
 
         for (int i = 0; i < jobCount; i++) {
             if (execArray[i] == NULL) {
@@ -893,8 +883,8 @@ int no_args(void)
     int status = EXIT_EMPTY; // starts as empty but maybe shouldnt be
 
     char*** cmdArray
-            = malloc(jobCount * sizeof(char**)); // stores cmds in array
-    pid_t* pids = malloc(jobCount * sizeof(pid_t)); // pid array
+            = (char***)malloc(jobCount * sizeof(char**)); // stores cmds in array
+    pid_t* pids = (pid_t*)malloc(jobCount * sizeof(pid_t)); // pid array
 
     // GET STRING FROM FILE AND STORE IN ARRAY
     while ((nLines = getline(&buffer, &len, stdin)) != -1) {
@@ -928,7 +918,7 @@ pid_t* spawn_maxJobs(int totaljobs, int maxJobs, char*** execArray)
     int numChildren = 0;
     int jobNum = 0;
     int status;
-    pid_t* pids = malloc(totaljobs * sizeof(pid_t));
+    pid_t* pids = (pid_t*)malloc(totaljobs * sizeof(pid_t));
 
     while (jobNum < totaljobs) { // unsure if <=
         if (numChildren < maxJobs) {
@@ -959,10 +949,10 @@ void close_pipes(int cmdNum, int** fds)
 // from **cmds[] cmd1 --> cmd2 --> cmd3 --> ... --> stdout
 int pipeline(char*** command_vector, int cmdcount)
 { // needs a wait thing and EXIT_PIPELINE if theres something wrong
-    int** fds = malloc(cmdcount * sizeof(int*));
+    int** fds = (int**)malloc(cmdcount * sizeof(int*));
 
     for (int i = 0; i < cmdcount; i++) {
-        fds[i] = malloc(2 * sizeof(int));
+        fds[i] = (int*)malloc(2 * sizeof(int));
     }
 
     // POPULATE PIPES
@@ -1022,8 +1012,8 @@ int stdinloop(COMMAND input)
     int jobCount = 1;
     int status;
 
-    pid_t* pids = malloc(jobCount * sizeof(pid_t));
-    char*** cmdArray = malloc(jobCount * sizeof(char**));
+    pid_t* pids = (pid_t*)malloc(jobCount * sizeof(pid_t));
+    char*** cmdArray = (char***)malloc(jobCount * sizeof(char**));
 
     while ((nLines = getline(&buffer, &len, stdin)) != -1) {
         char* strbuffer = remove_NL(buffer);
@@ -1051,7 +1041,7 @@ COMMAND populate_pt_args(int argc, char** argv, int index)
 {
     COMMAND ptArgs;
     ptArgs.length = argc - index - 1;
-    ptArgs.array = malloc(ptArgs.length * sizeof(char*));
+    ptArgs.array = (char**)malloc(ptArgs.length * sizeof(char*));
 
     for (int i = 0; i < ptArgs.length; i++) {
         ptArgs.array[i] = strdup(argv[index + 1 + i]);
@@ -1073,7 +1063,7 @@ int run_pertask_args_cmd(char** ptArgs, int ptArgsCount, int argc, char** argv,
         pid_t* pids = spawn_maxJobs(ptArgsCount, maxJobs, execArray);
         status = wait_children(ptArgsCount, pids, execArray);
     } else {
-        pid_t* pids = malloc(ptArgsCount * sizeof(pid_t));
+        pid_t* pids = (pid_t*)malloc(ptArgsCount * sizeof(pid_t));
         for (int i = 0; i < ptArgsCount; i++) {
             pids[i] = spawn_child_exec(execArray[i]);
         }
@@ -1096,7 +1086,7 @@ int run_pertask_args(
     char*** execArray = calloc(ptArgsCount, sizeof(char**));
     int status;
     for (int i = 0; i < ptArgsCount; i++) {
-        execArray[i] = malloc(sizeof(char*));
+        execArray[i] = (char**)malloc(sizeof(char*));
     }
 
     for (int i = 0; i < ptArgsCount; i++) {
@@ -1110,7 +1100,7 @@ int run_pertask_args(
         pid_t* pids = spawn_maxJobs(ptArgsCount, maxJobs, execArray);
         status = wait_children(ptArgsCount, pids, execArray);
     } else {
-        pid_t* pids = malloc(ptArgsCount * sizeof(pid_t));
+        pid_t* pids = (pid_t*)malloc(ptArgsCount * sizeof(pid_t));
 
         for (int i = 0; i < ptArgsCount; i++) {
             pids[i] = spawn_child_exec(execArray[i]);

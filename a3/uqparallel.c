@@ -29,22 +29,22 @@ typedef enum {
 } ExitStatus;
 
 /////////////////////////////////////////////////////////////////////////////
-const int EMPTY_EXIT_CODE = 33;
 const char* empty_cmd_msg = "uqparallel: cannot execute empty command.\n";
-const char* usage_err_msg = "Usage: ./uqparallel [--dryrun] [--abort-on-error] [--maxJobs n] [--pipe] [--args-file argument-filename] [cmd [fixed-args ...]] [::: per-task-args ...]\n";
+const char* usage_err_msg = "Usage: ./uqparallel [--dryrun] [--abort-on-error] [--maxjobs n] [--pipe] [--args-file argument-filename] [cmd [fixed-args ...]] [::: per-task-args ...]\n";
 const char* abort_err_msg = "uqparallel: aborting because of execution failure.\n";
 const char* cmd_err_msg = "uqparallel: \"%s\" not able to be executed\n";
 const char* file_err_msg = "uqparallel: Cannot open file \"%s\" for reading\n";
 const char* const fileArg = "args-file";
-const char* const maxJobsArg = "maxJobs";
+const char* const maxJobsArg = "maxjobs";
 const char* const abortArg = "abort-on-error"; 
 const char* const pipeArg = "pipe";
 const char* const dryrunArg = "dryrun"; 
 const char* const ptOption = ":::";
 const char* const emptyString = "";
+const char* const optionDelim = "--";
 ///////////////////////////////////////////////////////////////////////////////
 
-void sigfunc(int s);
+void sigfunc();
 void cmd_err();
 int isnum(char* string);
 int option_index_calc (int optind, int abflg, int pflg, int dflg, int fflg, int mflg);
@@ -63,12 +63,13 @@ bool quote_check (char* string);
 void print_array(int size, char* array[]);
 char** append_to_array (char** array1 , char** array2);
 pid_t spawn_child_exec (char** cmd);
-pid_t spawn_child_loop (pid_t* pids, char** cmd, int N); 
+pid_t* spawn_child_array (char** cmd, int N);
 void free_array2d (char** array, int size);
 void free_array3d (char*** array, int size1, int size2);
 int wait_children (int numChildren, pid_t* pidArray, char*** execArray);
 int status_check (int status, char* cmd);
 COMMAND parse_cmd (int argc, char** argv, int optind);
+int run_pertask_args_cmd (char** ptArgs, int ptArgsCount, int argc, char** argv, int pflg, int mflg, int maxJobs);
 COMMAND parse_options (int argc, char** argv);
 char*** parse_cmd_file(FILE *file, int jobCount);
 char** remove_arguments (int argc, char* argv[]); 
@@ -80,12 +81,13 @@ int no_args(void);
 int stdinloop (COMMAND cmd);
 pid_t* spawn_maxJobs(int totaljobs, int maxJobs, char*** execArray);
 int pipeline(char*** command_vector, int cmdcount);
+int run_pertask_args (char** ptArgs, int ptArgsCount, int pflg, int mflg, int maxJobs);
 
 int main(int argc, char* argv[]) {
-	int exit_status = 0;
+	int exitStatus = 0;
 
 	if (argc == 1) {
-		exit_status = no_args();
+		exitStatus = no_args();
 	}
 
 	//cmd parsing
@@ -95,10 +97,9 @@ int main(int argc, char* argv[]) {
 	int fflg=0; int abflg=0; int pflg=0; int mflg=0; int dflg=0; int ptflg=0;
 	int cmdflg = 0;
 	int errflg = 0;
-	int argument_count = 0;
 	int maxJobs = -1;
 	COMMAND ptArgs = {.array = NULL, .length = 0};
-	char* filename = NULL;
+	char* fileName = NULL;
 	struct sigaction sa;			// could probably put sighandler after option parsing so if abort-on-error then include SA_NOCLDSTOP
 	memset(&sa, 0, sizeof(sa));
 	sa.sa_handler = sigfunc;
@@ -109,34 +110,32 @@ int main(int argc, char* argv[]) {
 	FILE *inputFile = NULL;
 
 	static struct option options[] = {
-		{"abort-on-error", 	no_argument, 		0,	'a'},
-		{"args-file", 		required_argument, 	0,	'f'},
-		{"dryrun", 			no_argument, 		0,	'd'},
-		{"pipe", 			no_argument, 		0,	'p'},
-		{"maxJobs", 		required_argument, 	0,	'm'},
+		{abortArg, 		no_argument, 		0,	'a'},
+		{fileArg, 		required_argument, 	0,	'f'},
+		{dryrunArg,		no_argument, 		0,	'd'},
+		{pipeArg, 		no_argument, 		0,	'p'},
+		{maxJobsArg,	required_argument, 	0,	'm'},
 		{0, 				0, 					0, 	0}
 	};
 
 
 	if (argc > 1 && cmd_check(argv[1],options)) {
-		if (strcmp(argv[1], "") == 0) {
+		if (strcmp(argv[1], emptyString) == 0) {
 			cmd_err();
 		}
 	}
 
 	COMMAND option_array = parse_options(argc, argv); // to only parse -- long options so -a and --abort-on-error dont get mixed up
 
-	// prob should else this whole while statement
-	while ((c = getopt_long(option_array.length, option_array.array, "dpa:m:f:", options, &optind)) != -1) { //reference	https://www.man7.org/linux/man-pages/man3/getopt.3.html 
+	while ((c = getopt_long(option_array.length, option_array.array, "dpa:m:f:", options, &optind)) != -1) { //REF:	https://www.man7.org/linux/man-pages/man3/getopt.3.html 
 		switch (c) {
 			case 'a':	
 				abflg++;
-				printf("abort-on-error\n");
 				break;
 			case 'f':
 				fflg++;
 				inputFile = fopen(optarg, "r");
-				filename = strdup(optarg);
+				fileName = strdup(optarg);
 				break;
 
 			case 'd':	//dryrun
@@ -169,17 +168,10 @@ int main(int argc, char* argv[]) {
 			default: 
 				break;
 		}
-		/*
-		//possible implementation, store all seen arguments in a vector, iterate over that vector
-		//use those as the cmd arguments
-		//do that last and do the :::, finish off with iterating over all the seen arguments and comparing if they came up
-		//store all the new commands in a new array so you can do that with dryrun
-		*/
-			
 	}
 
 	for (int i = 0 ; i < argc ; i++) {
-		if (strcmp(argv[i], ":::") == 0) {
+		if (strcmp(argv[i], ptOption) == 0) {
 			if (fflg != 0) {
 				cmd_err();
 			}
@@ -206,7 +198,7 @@ int main(int argc, char* argv[]) {
 		cmd_err();
 	}
 	if (fflg && !inputFile) {
-		fprintf(stderr, file_err_msg, filename);
+		fprintf(stderr, file_err_msg, fileName);
 		exit(2);
 	}
 	if (argv[optind] != NULL) {
@@ -246,7 +238,7 @@ int main(int argc, char* argv[]) {
 				execArray[i] = append_to_array(cmd.array, file_cmdArray[i]);
 			}
 			if (pflg) {
-				exit_status = pipeline(execArray, jobCount);
+				exitStatus = pipeline(execArray, jobCount);
 			}
 			else {
 				for (int i = 0 ; i < jobCount ; i++) {
@@ -254,7 +246,7 @@ int main(int argc, char* argv[]) {
 				}
 			}
 			
-			exit_status = wait_children(jobCount, pids, execArray);
+			exitStatus = wait_children(jobCount, pids, execArray);
 
 			free(file_cmdArray);
 			free(execArray);
@@ -265,87 +257,37 @@ int main(int argc, char* argv[]) {
 		}
 	}
 	else if (ptflg) { // run per task arugments
-		if (!pertask_args_count) {
-			exit_status = EXIT_EMPTY;
+		if (!ptArgs.length) {
+			exitStatus = EXIT_EMPTY;
 		}
 		if (cmdflg) {
-			COMMAND cmd = parse_cmd(argc, argv, optind);
-			char*** execArray = pertask_append(pertask_args, cmd.array, cmd.length, pertask_args_count);
-			
-			if (pflg){
-				exit_status = pipeline(execArray, pertask_args_count);
-			}
-			else if (mflg) {
-				pid_t* pids = spawn_maxJobs(pertask_args_count, maxJobs, execArray);
-				exit_status = wait_children(pertask_args_count, pids, execArray);
-			}
-			else {
-				pid_t* pids = malloc(pertask_args_count * sizeof(pid_t));
-				for (int i = 0 ; i < pertask_args_count ; i++) {
-					pids[i] = spawn_child_exec(execArray[i]);
-				}
-
-				// WAITING
-				exit_status = wait_children(pertask_args_count, pids, execArray);
-			}
-
-			//FREE'ing
-			for (int i = 0 ; i < pertask_args_count ; i++) {
-				free(execArray[i]);
-			}
-			free(execArray);
+			exitStatus = run_pertask_args_cmd(ptArgs.array, ptArgs.length, argc, argv, pflg, mflg, maxJobs); 
 		}
 		else { // NO CMD GIVEN
-			char*** execArray = calloc(pertask_args_count, sizeof(char**));
-			int status;
-			for (int i = 0 ; i < pertask_args_count ; i++) {
-				execArray[i] = malloc(sizeof(char*));
-			}
-
-			for (int i = 0 ; i < pertask_args_count ; i++) {
-				execArray[i][0] = strdup(pertask_args[i]);
-			}
-
-			if (mflg) {
-				pid_t* pids = spawn_maxJobs(pertask_args_count, maxJobs, execArray);
-				exit_status = wait_children(pertask_args_count, pids, execArray);
-			}
-			else {
-				pid_t* pids = malloc(pertask_args_count * sizeof(pid_t));
-
-				for (int i = 0 ; i < pertask_args_count ; i++) {
-					pids[i] = spawn_child_exec(execArray[i]);
-				}
-				
-				// WAITING
-				exit_status = wait_children(pertask_args_count, pids, execArray);
-			}
-
-			// FREE'ing
-			free_array3d(execArray, pertask_args_count, 1);
+			exitStatus = run_pertask_args(ptArgs.array, ptArgs.length, pflg, mflg, maxJobs);
 		}
 	}
 	else if (cmdflg) {
 		COMMAND cmd = parse_cmd(argc, argv, optind);
-		exit_status = stdinloop(cmd);
+		exitStatus = stdinloop(cmd);
 	}
 	else if (argc != 1) {
-		exit_status = no_args();
+		exitStatus = no_args();
 	}
 
 	// FREE MEMORY
-	for (int i = 0 ; i < pertask_args_count ; i++) {
-		free(pertask_args[i]);
+	for (int i = 0 ; i < ptArgs.length ; i++) {
+		free(ptArgs.array[i]);
 	}
-	free(pertask_args);
-	free(filename);
-	exit(exit_status);
+	free(ptArgs.array);
+	free(fileName);
+	exit(exitStatus);
 }
 
 														/* Helper Functions */
 //-----------------------------------------------------------------------------------------------------------------------------------------//
 
-void sigfunc (int sig) {
+void sigfunc () {
 	endRT = true;
 }
 
@@ -527,12 +469,12 @@ COMMAND parse_options (int argc, char** argv) {
 	options.array[0] = strdup(argv[0]);
 
 	for (int i = 0 ; i < argc ; i++) { // getopt_long() starts at argv[1]
-		if (strstr(argv[i],"--")) {
+		if (strstr(argv[i],optionDelim)) {
 			options.array[options.length] = strdup(argv[i]);
 			options.length++;
 		}
-		if (strstr(argv[i],"args-file") || strstr(argv[i],"maxJobs")) {
-			if (argv[i+1] != NULL && !strstr(argv[i+1],"--")) {
+		if (strstr(argv[i], fileArg) || strstr(argv[i], maxJobsArg)) {
+			if (argv[i+1] != NULL && !strstr(argv[i+1],optionDelim)) {
 				options.array[options.length] = strdup(argv[i+1]);
 				options.length++;
 			}
@@ -626,14 +568,10 @@ pid_t spawn_child_exec (char** cmd) {
 	return pid;
 }
  
-pid_t spawn_child_pidArray (char** cmd, int N) { // dont know if this works
-	pid_t pid;
-	if (!(pid = fork())) {
-		if (!strcmp(cmd[0],"") || cmd[0] == NULL) {
-			exit(EXIT_EMPTY);
-		}
-		execvp(cmd[0], cmd);
-		raise(SIGUSR1);
+pid_t* spawn_child_array (char** cmd, int N) { // dont know if this works
+	pid_t* pid = malloc(N * sizeof(pid_t));
+	for (int i = 0 ; i < N ; i++) {
+		pid[i] = spawn_child_exec(cmd);
 	}
 	return pid;
 }
@@ -678,7 +616,7 @@ char*** parse_cmd_file(FILE *file, int jobCount) {
 	while ((nLines = getline(&buffer, &len, file)) != -1) {
 		char* strbuffer = remove_NL(buffer);
 		if (!strcmp(strbuffer, "")) {
-			execArray[index];
+			execArray[index] = NULL;
 			continue;
 		}
 		char** cmds = split_space_not_quote(strbuffer, &numtokens);
@@ -1072,4 +1010,68 @@ COMMAND populate_pt_args (int argc, char** argv, int index) {
 		ptArgs.array[i] = strdup(argv[index + 1 + i]);
 	}
 	return ptArgs;
+}
+
+int run_pertask_args_cmd (char** ptArgs, int ptArgsCount, int argc, char** argv, int pflg, int mflg, int maxJobs) {
+	COMMAND cmd = parse_cmd(argc, argv, optind);
+	char*** execArray = pertask_append(ptArgs, cmd.array, cmd.length, ptArgsCount);
+	int status;
+	
+	if (pflg) {
+		status = pipeline(execArray, ptArgsCount);
+	}
+	else if (mflg) {
+		pid_t* pids = spawn_maxJobs(ptArgsCount, maxJobs, execArray);
+		status = wait_children(ptArgsCount, pids, execArray);
+	}
+	else {
+		pid_t* pids = malloc(ptArgsCount * sizeof(pid_t));
+		for (int i = 0 ; i < ptArgsCount ; i++) {
+			pids[i] = spawn_child_exec(execArray[i]);
+		}
+
+		// WAITING
+		status = wait_children(ptArgsCount, pids, execArray);
+	}
+
+	//FREE'ing
+	for (int i = 0 ; i < ptArgsCount ; i++) {
+		free(execArray[i]);
+	}
+	free(execArray);
+	return status;
+}
+
+int run_pertask_args (char** ptArgs, int ptArgsCount, int pflg, int mflg, int maxJobs) {
+	char*** execArray = calloc(ptArgsCount, sizeof(char**));
+	int status;
+	for (int i = 0 ; i < ptArgsCount ; i++) {
+		execArray[i] = malloc(sizeof(char*));
+	}
+
+	for (int i = 0 ; i < ptArgsCount ; i++) {
+		execArray[i][0] = strdup(ptArgs[i]);
+	}
+	if (pflg) {
+		status = pipeline(execArray, ptArgsCount);
+	}
+
+	if (mflg) {
+		pid_t* pids = spawn_maxJobs(ptArgsCount, maxJobs, execArray);
+		status = wait_children(ptArgsCount, pids, execArray);
+	}
+	else {
+		pid_t* pids = malloc(ptArgsCount * sizeof(pid_t));
+
+		for (int i = 0 ; i < ptArgsCount ; i++) {
+			pids[i] = spawn_child_exec(execArray[i]);
+		}
+		
+		// WAITING
+		status = wait_children(ptArgsCount, pids, execArray);
+	}
+
+	// FREE'ing
+	free_array3d(execArray, ptArgsCount, 1);
+	return status;
 }

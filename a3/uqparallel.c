@@ -37,7 +37,8 @@ const char* const usage_err_msg
 const char* const abort_err_msg
         = "uqparallel: aborting because of execution failure.\n";
 const char* const cmd_err_msg = "uqparallel: \"%s\" not able to be executed\n";
-const char* const file_err_msg = "uqparallel: Cannot open file \"%s\" for reading\n";
+const char* const file_err_msg
+        = "uqparallel: Cannot open file \"%s\" for reading\n";
 const char* const fileArg = "args-file";
 const char* const maxJobsArg = "maxjobs";
 const char* const abortArg = "abort-on-error";
@@ -524,8 +525,8 @@ COMMAND parse_options(int argc, char** argv)
 char*** pertask_append(
         char** argumentArray, char** cmds, int cmdcount, int argcount)
 { // make it append the current argv[] with the pertask arguments
-    char*** newArray
-            = (char***)malloc(argcount * sizeof(char**)); // include null terminator
+    char*** newArray = (char***)malloc(
+            argcount * sizeof(char**)); // include null terminator
 
     // ALLOCATE MEMORY
     for (int i = 0; i < argcount; i++) {
@@ -802,8 +803,8 @@ void drynoarg(int argc, char** argv, int optind)
     size_t len = 0;
     ssize_t nLines;
     int jobNum = 1;
-    char** cmdArray
-            = (char**)malloc((argc - optind) * sizeof(char*)); // might be unecessary
+    char** cmdArray = (char**)malloc(
+            (argc - optind) * sizeof(char*)); // might be unecessary
 
     for (int i = 0; i < (argc - optind); i++) {
         cmdArray[i] = strdup(argv[optind + i]);
@@ -882,8 +883,8 @@ int no_args(void)
     int jobCount = 1;
     int status = EXIT_EMPTY; // starts as empty but maybe shouldnt be
 
-    char*** cmdArray
-            = (char***)malloc(jobCount * sizeof(char**)); // stores cmds in array
+    char*** cmdArray = (char***)malloc(
+            jobCount * sizeof(char**)); // stores cmds in array
     pid_t* pids = (pid_t*)malloc(jobCount * sizeof(pid_t)); // pid array
 
     // GET STRING FROM FILE AND STORE IN ARRAY

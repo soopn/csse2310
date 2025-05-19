@@ -26,7 +26,7 @@ const char* const detectImgVariation = "<";
 typedef enum {
 	EXIT_USAGE = 8,
 	EXIT_FILE_READ = 19,
-	EXIT_FILE_WRITE = 18,
+	EXIT_FILE_WRITE = 15,
 	EXIT_PORT = 2 
 } ExitStatus;
 
@@ -46,6 +46,7 @@ void duplicate_argument_check (Arguments* args, const char* const argument);
 void has_portnum (char** argv);
 Arguments* init_arguments ();
 Arguments* parse_command_line (int argc, char** argv);
+Arguments* file_checking (Arguments* args);
 
 
 /* COMMAND LINE ARGUMENTS
@@ -63,6 +64,21 @@ int main(int argc, char** argv)
 
 								/* OTHER FUNCTIONS*/
 //-----------------------------------------------------------------------------//
+
+void usage_error() {
+	fprintf(stderr, usageErrMsg);
+	exit(EXIT_USAGE);
+}
+
+void empty_input_file (char* filename) {
+	fprintf(stderr, fileReadErr, filename);
+	exit(EXIT_FILE_READ);
+}
+
+void empty_output_file (char* filename) {
+	fprintf(stderr, fileWriteErr, filename);
+	exit(EXIT_FILE_WRITE);
+}
 
 void has_empty_string (int argc, char** argv) {
 	argv++; // remove program name
@@ -97,10 +113,6 @@ bool is_argument (char* string) {
 	return false;
 }
  
-void usage_error() {
-	fprintf(stderr, usageErrMsg);
-	exit(EXIT_USAGE);
-}
 
 // check if given argument has already been initialised in args
 void duplicate_argument_check (Arguments* args, const char* const argument) {
@@ -171,6 +183,30 @@ Arguments* parse_command_line (int argc, char** argv) {
 			}
 		}
 		else usage_error();
+	}
+	args = file_checking(args);
+	return args;
+}
+
+// TODO: change to open()
+Arguments* file_checking (Arguments* args) {
+	if (args->replaceFileName != NULL) {
+		args->replaceFile = fopen(args->replaceFileName, "r");
+		if (!args->replaceFile) {
+			empty_input_file(args->replaceFileName);
+		}
+	}
+	if (args->outputFileName != NULL) { 
+		args->outputFile = fopen(args->outputFileName, "w");// should be open (truncate if exist, write if not)
+		if (!args->outputFile) {
+			empty_output_file(args->replaceFileName);
+		}
+	}
+	if (args->imgFileName != NULL) {
+		args->imgFile = fopen(args->imgFileName, "r");
+		if (!args->imgFile) {
+			empty_input_file(args->imgFileName);
+		}
 	}
 	return args;
 }

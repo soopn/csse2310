@@ -3,6 +3,8 @@
 #include <stdbool.h>
 #include <string.h>
 
+							/* CONSTANTS */
+//---------------------------------------------------------------------------//
 // CONST STRINGS
 const char* const usageErrMsg
         = "Usage: ./uqfaceclient portnum [--replacefilename filename] "
@@ -17,7 +19,10 @@ const char* const outputFileArg = "--outputfilename";
 const char* const outputFileVariation = ">";
 const char* const detectImgArg = "--detectimage";
 const char* const detectImgVariation = "<";
+//---------------------------------------------------------------------------//
 
+							/* STRUCTS */
+//---------------------------------------------------------------------------//
 typedef enum {
 	EXIT_USAGE = 8,
 	EXIT_FILE_READ = 19,
@@ -33,22 +38,31 @@ typedef struct {
 	char* imgFileName;
 	FILE* imgFile;
 } Arguments;
+//---------------------------------------------------------------------------//
 
 void usage_error();
 bool is_argument (char* string);
 void duplicate_argument_check (Arguments* args, const char* const argument);
+void has_portnum (char** argv);
 Arguments* init_arguments ();
 Arguments* parse_command_line (int argc, char** argv);
+
 
 /* COMMAND LINE ARGUMENTS
  * USAGE: ./uqfaceclient portnum [--replacefilename filename] [--outputfilename filename] [--detectimage filename]
  * portnum must always be the first argument cannot be empty
+ * TODO:
+ * unexpected argument checking
  */
+
 int main(int argc, char** argv)
 {
 	Arguments* programArgs = parse_command_line(argc, argv);
     return 0;
 }
+
+								/* OTHER FUNCTIONS*/
+//-----------------------------------------------------------------------------//
 
 void has_empty_string (int argc, char** argv) {
 	argv++; // remove program name
@@ -71,16 +85,16 @@ int increment_and_check (int iteration, int argc) {
 }
 
 bool is_argument (char* string) {
-	if (strcmp(string, replaceFileArg)) {
-		return false;
+	if (!strcmp(string, replaceFileArg)) {
+		return true;
 	}
-	if (strcmp(string, outputFileArg) || strcmp(string, outputFileVariation)) {
-		return false;
+	if (!strcmp(string, outputFileArg) || !strcmp(string, outputFileVariation)) {
+		return true;
 	}
-	if (strcmp(string, detectImgArg) || strcmp(string, detectImgVariation)) {
-		return false;
+	if (!strcmp(string, detectImgArg) || !strcmp(string, detectImgVariation)) {
+		return true;
 	}
-	return true;
+	return false;
 }
  
 void usage_error() {
@@ -107,6 +121,11 @@ void duplicate_argument_check (Arguments* args, const char* const argument) {
 	}
 }
 
+void has_portnum (char** argv) {
+	if (is_argument(argv[1])) usage_error();
+	return;
+}
+
 Arguments* init_arguments () { // sets all pointers to NULL
 	Arguments* args = (Arguments*)malloc(sizeof(Arguments));
 	args->replaceFileName = NULL;
@@ -119,6 +138,8 @@ Arguments* init_arguments () { // sets all pointers to NULL
 }
 
 Arguments* parse_command_line (int argc, char** argv) {
+	if (argc == 1) usage_error(); 
+	has_portnum(argv);
 	has_empty_string(argc, argv); // check for empty string
 	argv += 2; // remove program name and portnum
 	argc -= 2;
@@ -130,6 +151,7 @@ Arguments* parse_command_line (int argc, char** argv) {
 			if (!is_argument(argv[i])) {
 				duplicate_argument_check(args, replaceFileArg);
 				args->replaceFileName = strdup(argv[i]);
+				continue;
 			}
 		}
 		if (!strcmp(argv[i], outputFileArg) || !strcmp(argv[i], outputFileVariation)) {
@@ -137,6 +159,7 @@ Arguments* parse_command_line (int argc, char** argv) {
 			if (!is_argument(argv[i])) {
 				duplicate_argument_check(args, outputFileArg);
 				args->outputFileName = strdup(argv[i]);
+				continue;
 			}
 		}
 		if (!strcmp(argv[i], detectImgArg) || !strcmp(argv[i], detectImgVariation)) {
@@ -144,8 +167,10 @@ Arguments* parse_command_line (int argc, char** argv) {
 			if (!is_argument(argv[i])) {
 				duplicate_argument_check(args, detectImgArg);
 				args->imgFileName = strdup(argv[i]);
+				continue;
 			}
 		}
+		else usage_error();
 	}
 	return args;
 }

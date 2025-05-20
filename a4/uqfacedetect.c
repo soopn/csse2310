@@ -5,6 +5,9 @@
 #include <unistd.h>
 #include <string.h>
 #include <ctype.h>
+#include <opencv2/imgcodecs/imgcodecs_c.h>
+#include <opencv2/imgproc/imgproc_c.h>
+#include <opencv2/objdetect/objdetect_c.h>
 
 								/* CONSTANTS */
 //---------------------------------------------------------------------------//
@@ -15,6 +18,8 @@ const char* const portErrMsg = "uqfacedetect: cannot listen on given port \"%d\"
 
 const char* const emptyString = "";
 const char* const tmpFileDir = "/tmp/imagefile.jpg";
+const char* const faceCascadeFilename = "/local/courses/csse2310/resources/a4/haarcascade_frontalface_alt2.xml";
+const char* const eyeCascadeFilename = "/local/courses/csse2310/resources/a4/haarcascade_eye_tree_eyeglasses.xml";
 
 const int CONST_MAX_CLIENTS = 10000;
 //TODO: const uint32_t maxSize = ??
@@ -34,6 +39,12 @@ typedef struct {
 	uint32_t maxSize;
 	char* portNumber;
 } Arguments;
+
+typedef struct {
+	FILE* outputFile;
+	CvHaarClassifierCascade* faceCascade;
+	CvHaarClassifierCascade* eyeCascade;
+} OpenCVstruct;
 //---------------------------------------------------------------------------//
 
 void exit_usage_error ();
@@ -49,11 +60,13 @@ Arguments* init_arguments ();
 Arguments* argument_check (int argc, char** argv);
 void clean (Arguments* args);
 FILE* tmp_file_check (Arguments* args);
+OpenCVstruct* init_cascade_struct (Arguments* args);
 
 //---------------------------------------------------------------------------//
 int main (int argc, char** argv) {
 	Arguments* args = argument_check(argc, argv);
 	FILE* tmpFile = tmp_file_check(args);
+	OpenCVstruct* OpenCVparameters = init_cascade_struct(args);
 	return 0;
 }
 
@@ -167,6 +180,15 @@ FILE* tmp_file_check (Arguments* args) {
 	return tmp;
 }
 	
-
-
+OpenCVstruct* init_cascade_struct (Arguments* args) {
+	OpenCVstruct* param = (OpenCVstruct*)calloc(1, sizeof(OpenCVstruct));
+	param->outputFile = NULL;
+	param->faceCascade = (CvHaarClassifierCascade*)cvLoad(faceCascadeFilename, NULL, NULL, NULL);
+	param->eyeCascade = (CvHaarClassifierCascade*)cvLoad(eyeCascadeFilename, NULL, NULL, NULL);
+	if (!param->faceCascade || !param->eyeCascade) {
+		clean(args);
+		exit_cascade_error();
+	}
+	return param;
+}
 

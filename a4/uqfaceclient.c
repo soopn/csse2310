@@ -2,18 +2,22 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
+#include <netdb.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 							/* CONSTANTS */
 //---------------------------------------------------------------------------//
-// CONST STRINGS
 const char* const usageErrMsg
         = "Usage: ./uqfaceclient portnum [--replacefilename filename] "
           "[--outputfilename filename] [--detectimage filename]\n";
 const char* const fileReadErr = "uqfaceclient: unable to open the input file \"%s\" for reading\n";
 const char* const fileWriteErr = "uqfaceclient: cannot open the output file \"%s\" for writing\n";
 const char* const portErrMsg = "uqfaceclient: unable to connect to the server on port \"%d\"\n";
+const char* const runtimeErrMsg = "uqfaceclient: received the following error message: \"%s\"\n";
+const char* const communicationErr = "uqfaceclient: unexpected communication error\n";
 
-// CONST CMD LINE ARGUMENTS
 const char* const replaceFileArg = "--replacefilename";
 const char* const outputFileArg = "--outputfilename";
 const char* const outputFileVariation = ">";
@@ -27,7 +31,9 @@ typedef enum {
 	EXIT_USAGE = 8,
 	EXIT_FILE_READ = 19,
 	EXIT_FILE_WRITE = 15,
-	EXIT_PORT = 2 
+	EXIT_PORT = 2,
+	EXIT_RUNTIME = 20,
+	EXIT_COMMUNICATION = 1
 } ExitStatus;
 
 typedef struct {
@@ -189,6 +195,7 @@ Arguments* parse_command_line (int argc, char** argv) {
 }
 
 // TODO: change to open()
+// 		 write file with "rw" access
 Arguments* file_checking (Arguments* args) {
 	if (args->replaceFileName != NULL) {
 		args->replaceFile = fopen(args->replaceFileName, "r");
@@ -210,3 +217,43 @@ Arguments* file_checking (Arguments* args) {
 	}
 	return args;
 }
+
+/*
+// TODO: remove debug msg
+int connect_socket (Arguments* args) {
+	struct addrinfo* ai = 0;
+	struct addrinfo hints;
+	memset(&hints, 0, sizeof(struct addrinfo));
+	hints.ai_family = AF_INET; 		 // IPv4
+	hints.ai_socktype = SOCK_STREAM; // TCP
+	int err;
+	if (err = getaddrinfo("localhost", port, &hints, &ai)) {
+		fprintf(stderr, "SOMETHING WRONG HAPPENED WITH ADDRESS");
+		freeaddrinfo(ai);
+		exit(99); //debug 
+	}
+
+	// TODO: get portnum to print err msg
+	int fd = socket(AF_INET, SOCK_STREAM, 0); // default protocol
+	if (connect(fd, ai->ai_addr, sizeof(struct sockaddr)) == -1) {
+		fprintf(stderr, portErrMsg, ntohs(ai->sin_port));
+		freeaddrinfo(ai);
+		exit(EXIT_PORT);
+	}
+	// connected
+
+	// random tasks to be done, return back with fds to do stuff with later on i guess?
+	int fd2 = dup(fd);
+	FILE* output = fdopen(fd, "w");
+	FILE* input = fdopen(fd2, "r");
+
+	fprintf(output, "CONNECTED!\n");
+	fflush(output);
+	fclose(output);
+	return 0;
+}
+
+void client_runtime () {
+
+}
+*/

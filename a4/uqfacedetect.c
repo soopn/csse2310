@@ -5,6 +5,11 @@
 #include <unistd.h>
 #include <string.h>
 #include <ctype.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <pthread.h>
 #include <opencv2/imgcodecs/imgcodecs_c.h>
 #include <opencv2/imgproc/imgproc_c.h>
 #include <opencv2/objdetect/objdetect_c.h>
@@ -14,7 +19,7 @@
 const char* const usageErrMsg = "Usage: ./uqfacedetect maxclients maxsize [portNumber]\n";
 const char* const imageWriteErrMsg = "uqfacedetect: unable to open the image file for writing\n";
 const char* const cascadeErrMsg = "uqfacedetect: unable to load a cascade classifier\n";
-const char* const portErrMsg = "uqfacedetect: cannot listen on given port \"%d\"\n";
+const char* const portErrMsg = "uqfacedetect: cannot listen on given port \"%s\"\n";
 
 const char* const emptyString = "";
 const char* const tmpFileDir = "/tmp/imagefile.jpg";
@@ -37,7 +42,7 @@ typedef enum {
 typedef struct {
 	int maxClients;
 	uint32_t maxSize;
-	char* portNumber;
+	char* port;
 } Arguments;
 
 typedef struct {
@@ -50,7 +55,7 @@ typedef struct {
 void exit_usage_error ();
 void exit_image_error ();
 void exit_cascade_error ();
-void exit_portNumber (int portNumber); //might not be int
+void exit_port (char* port);
 bool is_num (char* inputString);
 bool valid_max_clients (char* input);
 bool valid_max_size (char* input);
@@ -61,12 +66,14 @@ Arguments* argument_check (int argc, char** argv);
 void clean (Arguments* args);
 FILE* tmp_file_check (Arguments* args);
 OpenCVstruct* init_cascade_struct (Arguments* args);
+int open_listen_connection (Arguments* args);
 
 //---------------------------------------------------------------------------//
 int main (int argc, char** argv) {
 	Arguments* args = argument_check(argc, argv);
 	FILE* tmpFile = tmp_file_check(args);
 	OpenCVstruct* OpenCVparameters = init_cascade_struct(args);
+	int serverFD = open_listen_connection(args);
 	return 0;
 }
 
@@ -87,8 +94,8 @@ void exit_cascade_error () {
 	exit(EXIT_CASCADE);
 }
 
-void exit_portNumber (int portNumber) { //might not be int
-	fprintf(stderr, portErrMsg, portNumber);
+void exit_port (char* port) { //might not be int
+	fprintf(stderr, portErrMsg, port);
 	exit(EXIT_PORT);
 }
 
@@ -135,7 +142,7 @@ Arguments* init_arguments () {
 	Arguments* args = (Arguments*)malloc(sizeof(Arguments));
 	args->maxClients = 0;
 	args->maxSize = 0;
-	args->portNumber = NULL;
+	args->port = NULL;
 	return args;
 }
 
@@ -162,12 +169,12 @@ Arguments* argument_check (int argc, char** argv) {
 		args->maxSize = strtoul(argv[1], NULL, 32); // 32 bit unsigned long?
 	}
 	if (argv[2] != NULL) {
-		args->portNumber = strdup(argv[2]); // malloc'd
+		args->port = strdup(argv[2]); // malloc'd
 	}
 	return args;
 }
 void clean (Arguments* args) {
-	free((char*)args->portNumber);
+	free((char*)args->port);
 	free((Arguments*)args);
 }
 
@@ -192,3 +199,46 @@ OpenCVstruct* init_cascade_struct (Arguments* args) {
 	return param;
 }
 
+// TODO: remove debugging
+// 		 add mutex to limit maximum clients
+int open_listen_connection (Arguments* args) {
+    struct addrinfo* ai = 0;
+    struct addrinfo hints;
+
+    memset(&hints, 0, sizeof(struct addrinfo));
+    hints.ai_family = AF_INET; // IPv4
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_PASSIVE; // listen on all IP addresses
+
+    int err; //debugging
+    if ((err = getaddrinfo(NULL, args->port, &hints, &ai))) {
+        freeaddrinfo(ai);
+        fprintf(stderr, "%s\n", gai_strerror(err));
+        exit(99); // Could not determine address
+    }
+
+    // Create a socket
+    int listenfd = socket(AF_INET, SOCK_STREAM, 0); // 0=default protocol (TCP)
+    if (listenfd < 0) { // error in listening
+		clean(args);
+		exit_port(args->port);
+    }
+
+	/* NOT SURE IF NECESSARY
+    // Allow address (port number) to be reused immediately
+    int optVal = 1;
+    if (setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &optVal, sizeof(int))
+            < 0) {
+        perror("Error setting socket option");
+        exit(1);
+    }
+	*/
+
+    // Bind socket to address
+    if (bind(listenfd, ai->ai_addr, sizeof(struct sockaddr)) < 0) {
+        perror("Binding");
+        exit(3);
+    }
+
+	return listenfd;
+}

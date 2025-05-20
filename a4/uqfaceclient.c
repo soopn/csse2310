@@ -23,6 +23,8 @@ const char* const outputFileArg = "--outputfilename";
 const char* const outputFileVariation = ">";
 const char* const detectImgArg = "--detectimage";
 const char* const detectImgVariation = "<";
+
+const char* const emptyString = "";
 //---------------------------------------------------------------------------//
 
 							/* STRUCTS */
@@ -90,7 +92,7 @@ void has_empty_string (int argc, char** argv) {
 	argv++; // remove program name
 	argc--;
 	for (int i = 0; i < argc ; i++) {
-		if (!strcmp(argv[i], "")) {
+		if (!strcmp(argv[i], emptyString)) {
 			usage_error();
 		}
 	}

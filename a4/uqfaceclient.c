@@ -25,10 +25,18 @@ const char* const detectImgArg = "--detectimage";
 const char* const detectImgVariation = "<";
 
 const char* const emptyString = "";
+const uint32_t imgPrefix = 0x23107231;
 //---------------------------------------------------------------------------//
 
 							/* STRUCTS */
 //---------------------------------------------------------------------------//
+typedef enum {
+	faceDetect = 0;
+	faceReplace = 1;
+	outputImage = 2;
+	errorMessage = 3;
+} OperationType;
+ 
 typedef enum {
 	EXIT_USAGE = 8,
 	EXIT_FILE_READ = 19,
@@ -55,6 +63,9 @@ void has_portnum (char** argv);
 Arguments* init_arguments ();
 Arguments* parse_command_line (int argc, char** argv);
 Arguments* file_checking (Arguments* args);
+int connect_socket (char* port, Arguments* args);
+bool input_file_or_stdin (Arguments* args);
+char* removeNewline (char* string);
 
 
 /* COMMAND LINE ARGUMENTS
@@ -196,9 +207,24 @@ Arguments* parse_command_line (int argc, char** argv) {
 	return args;
 }
 
+// true if file present, false otherwise
+bool input_file_or_stdin (Arguments* args) {
+	if (args->imgFileName || args->replaceFileName) {
+		return true;
+	}
+	else return false;
+}
+
 // TODO: change to open()
 // 		 write file with "rw" access
+// 		 add closing of other opened files if they passed
 Arguments* file_checking (Arguments* args) {
+	if (args->imgFileName != NULL) {
+		args->imgFile = fopen(args->imgFileName, "r");
+		if (!args->imgFile) {
+			empty_input_file(args->imgFileName);
+		}
+	}
 	if (args->replaceFileName != NULL) {
 		args->replaceFile = fopen(args->replaceFileName, "r");
 		if (!args->replaceFile) {
@@ -211,25 +237,18 @@ Arguments* file_checking (Arguments* args) {
 			empty_output_file(args->replaceFileName);
 		}
 	}
-	if (args->imgFileName != NULL) {
-		args->imgFile = fopen(args->imgFileName, "r");
-		if (!args->imgFile) {
-			empty_input_file(args->imgFileName);
-		}
-	}
 	return args;
 }
 
-/*
 // TODO: remove debug msg
-int connect_socket (Arguments* args) {
+int connect_socket (char* port, Arguments* args) {
 	struct addrinfo* ai = 0;
 	struct addrinfo hints;
 	memset(&hints, 0, sizeof(struct addrinfo));
 	hints.ai_family = AF_INET; 		 // IPv4
 	hints.ai_socktype = SOCK_STREAM; // TCP
 	int err;
-	if (err = getaddrinfo("localhost", port, &hints, &ai)) {
+	if (err = getaddrinfo("localhost", port, &hints, &ai) != 0) {
 		fprintf(stderr, "SOMETHING WRONG HAPPENED WITH ADDRESS");
 		freeaddrinfo(ai);
 		exit(99); //debug 
@@ -238,11 +257,13 @@ int connect_socket (Arguments* args) {
 	// TODO: get portnum to print err msg
 	int fd = socket(AF_INET, SOCK_STREAM, 0); // default protocol
 	if (connect(fd, ai->ai_addr, sizeof(struct sockaddr)) == -1) {
-		fprintf(stderr, portErrMsg, ntohs(ai->sin_port));
+		fprintf(stderr, portErrMsg, port);
 		freeaddrinfo(ai);
+		free((Arguments*)args);
 		exit(EXIT_PORT);
 	}
 	// connected
+	  
 
 	// random tasks to be done, return back with fds to do stuff with later on i guess?
 	int fd2 = dup(fd);
@@ -252,10 +273,46 @@ int connect_socket (Arguments* args) {
 	fprintf(output, "CONNECTED!\n");
 	fflush(output);
 	fclose(output);
-	return 0;
+	return fd;
 }
 
-void client_runtime () {
+char* removeNewline (char* string) {
+	char* buffer = strdup(string);
+	for (int i = 0 ; i < (int)strlen(string) ; i++) {
+		if (buffer[i] = '\n') {
+			buffer[i] = '\0';
+			buffer = (char*)realloc(buffer, (i+1) * sizeof(char));
+			break;
+		}
+	}
+	return buffer;
+}
+
+/* ORDER OF BYTESTREAM
+ * 4 byte: imgPrefix		(uint32_t)
+ * 1 byte: OperationType 	(uint8_t) 
+ * 4 byte: imgsize1			(uint32_t) 
+ * M byte: img1				(???)
+ * 4 byte: imgsize2			(uint32_t)
+ * N byte: img2				(???)
+ */
+void client_runtime (Arguments* args, int socketFD) {
+	if (!input_file_or_stdin(args)) { // read from stdin
+		char* buffer = NULL;
+		size_t len = 0;
+		ssize_t numLines;
+		numLines = getline(&buffer, &len, stdin); // get file from stdin
+		FILE* inputFile = fopen(removeNewline(buffer), "r");
+
+
+		// doing something to send stuff over
+		
+
+		return 0;
+	}
 
 }
-*/
+
+
+
+}

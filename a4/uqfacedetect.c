@@ -25,8 +25,10 @@ const char* const emptyString = "";
 const char* const tmpFileDir = "/tmp/imagefile.jpg";
 const char* const faceCascadeFilename = "/local/courses/csse2310/resources/a4/haarcascade_frontalface_alt2.xml";
 const char* const eyeCascadeFilename = "/local/courses/csse2310/resources/a4/haarcascade_eye_tree_eyeglasses.xml";
+const char* const responseFilename = "/local/courses/csse2310/resources/a4/responsefile";
 
 const int CONST_MAX_CLIENTS = 10000;
+const uint32_t imgPrefix = 0x23107231;
 //TODO: const uint32_t maxSize = ??
 //---------------------------------------------------------------------------//
 
@@ -38,6 +40,22 @@ typedef enum {
 	EXIT_CASCADE = 11,
 	EXIT_PORT = 1
 } ExitStatus;
+
+typedef struct {
+	uint32_t prefix;
+	uint8_t operation;
+	uint32_t size1;
+	bool* image1; // pointer to first byte of img1??
+	uint32_t size2;
+	bool* image2; // pointer to first byte of img2??
+} Message;
+
+typedef enum {
+	faceDetect = 0;
+	faceReplace = 1;
+	outputImage = 2;
+	errorMessage = 3;
+} OperationType;
 
 typedef struct {
 	int maxClients;
@@ -204,6 +222,8 @@ OpenCVstruct* init_cascade_struct (Arguments* args) {
 int open_listen_connection (Arguments* args) {
     struct addrinfo* ai = 0;
     struct addrinfo hints;
+	struct sockaddr_in fromAddr;
+	socklen_t fromAddrSize = sizeof(struct sockaddr_in);
 
     memset(&hints, 0, sizeof(struct addrinfo));
     hints.ai_family = AF_INET; // IPv4
@@ -235,10 +255,20 @@ int open_listen_connection (Arguments* args) {
 	*/
 
     // Bind socket to address
-    if (bind(listenfd, ai->ai_addr, sizeof(struct sockaddr)) < 0) {
+    if (bind(listenfd, (struct sockaddr*)ai->ai_addr, sizeof(struct sockaddr)) < 0) { // not sure about the casting
         perror("Binding");
+		close(listenfd);
         exit(3);
     }
+
+	/*
+	if (getnameinfo((struct sockaddr*)ai->ai_addr, sizeof(struct sockaddr), // I DONT GET IT
+					NULL, NI_MAXHOST,
+					NULL, 0, 0));
+	fprintf(stderr, "%d\n", ntohs(ai->ai_addr->sin_port));
+	*/
+	fflush(stderr);
+	fflush(stdout);
 
 	return listenfd;
 }

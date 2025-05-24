@@ -29,7 +29,7 @@ const char* const responseFilename = "/local/courses/csse2310/resources/a4/respo
 
 const int CONST_MAX_CLIENTS = 10000;
 const int numStatistics = 5;
-const uint32_t imgPrefix = 0x23107231;
+const uint32_t msgPrefix = 0x23107231;
 const uint32_t MAX_SIZE = (1UL << 32) - 1; 
 //---------------------------------------------------------------------------//
 
@@ -70,7 +70,15 @@ typedef struct {
 	CvHaarClassifierCascade* eyeCascade;
 } OpenCVstruct;
 
-enum InvalidMessageCodes {
+typedef struct {
+	uint32_t connections;
+	uint32_t completed;
+	uint32_t detectionRequests;
+	uint32_t replaceRequests;
+	uint32_t malformed;
+} Statistics;
+
+enum ErrorMessageCodes {
 	INVALID_MESSAGE = 0,
 	INVALID_OPERATION = 1,
 	IMAGE_ZERO_BYTES = 2,
@@ -88,7 +96,7 @@ const char** errorMessages = {
 	"no faces detected in image" 
 };
 
-const char** statistics = {
+const char** statisticsList = {
 	"Connected clients: ",
 	"Clients completed: ",
 	"Face detection requests: ",
@@ -192,7 +200,7 @@ void has_empty_string(int argc, char** argv) {
 
 Message* init_message(void) {
 	Message* message = (Message*)malloc(sizeof(Message));
-	message->prefix = 0;
+	message->prefix = msgPrefix;
 	message->operation = 3; // 0 is a valid operation 3 for error
 	message->detectImgSize = 0;
 	message->detectImgContent = NULL;
@@ -321,7 +329,14 @@ int open_listen_connection(Arguments* args) {
 	return listenFD;
 }
  
-void send_error_message (int socket, )
+// TODO:
+void send_error_message (int socket) {
+	// formatting message
+	Message* message = init_message();
+	message->operation = errorMessage;
+	message->detectImgSize = (uint32_t)strlen(errorMessages[INVALID_MESSAGE]);
+	//message->detectImgContent = 
+}
 
 void read_message(int socket, Arguments* args) {
 	Message* serverMessage = init_message();
@@ -329,8 +344,10 @@ void read_message(int socket, Arguments* args) {
 	// read prefix first
 	uint32_t* prefixBuffer = (uint32_t*)malloc(sizeof(uint32_t));
 	read(socket, prefixBuffer, sizeof(uint32_t));
-	if (*prefixBuffer != imgPrefix) {
+	if (*prefixBuffer != msgPrefix) {
 		free((uint32_t*)prefixBuffer);
+		send_error_message (
+		return; // unsure
 	}
 	free((uint32_t*)prefixBuffer);
 
@@ -341,11 +358,39 @@ void read_message(int socket, Arguments* args) {
 	}
 }
 
+void* client_handler(void* param) {
+}
+
 /* BEHAVIOUR:
  *
  * spawn thread for each connection
  * ensure mutex of shared data structures, (CvHaarClassifierCascade)
+ * if read() error or EOF from client, client handler must close connection, clean
+ * 		and terminate
+ * on SIGHUP print statistics to stderr
  */
-void server_runtime () {
+void server_runtime (int fdServer, Arguments* serverArgs) {
 	int connections = 0;
+	int fd;
+	struct sockaddr_in fromAddr;
+	socklen_t fromAddrSize;
+	int conditional = serverArgs->maxClients;
+
+	while(conditional ? 1 : (connections < conditional)) {
+        fromAddrSize = sizeof(struct sockaddr_in);
+        // Block, waiting for a new connection. (fromAddr will be populated
+        // with address of client)
+        fd = accept(fdServer, (struct sockaddr*)&fromAddr, &fromAddrSize);
+		connections++;
+		// accepted connection
+		int* fdData = (int*)malloc(sizeof(int));
+		*fdData = fd;
+		pthread_t threadID;
+
+
 }
+
+
+
+
+

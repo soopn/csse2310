@@ -26,6 +26,7 @@ const char* const detectImgVariation = "<";
 
 const char* const emptyString = "";
 const uint32_t imgPrefix = 0x23107231;
+const uint32_t badRequest = 0x99999999;
 //---------------------------------------------------------------------------//
 
 							/* STRUCTS */
@@ -91,6 +92,8 @@ void populate_message_buffer (Message* message, uint8_t* buffer);
 int write_message (Message* message, int socketFD);
 void read_message(int socket, Arguments* args);
 void write_img_to_file(int socket, Message* response, Arguments* args);
+char* byte_to_string(uint8_t* input, uint32_t length);
+void print_error_message(int socket);
 ssize_t send_with_header (int socketFD, uint8_t* buffer, size_t length);
 void client_runtime (Arguments* args, int socketFD);
 
@@ -222,7 +225,6 @@ Arguments* parse_command_line(int argc, char** argv) {
 	argv += 2; // remove program name and portnum
 	argc -= 2;
 	Arguments* args = init_arguments(); // malloc'd
-	bool print_to_file = false;
 
 	for (int i = 0 ; i < argc; i++) {
 		if (!strcmp(argv[i], replaceFileArg)) {
@@ -250,7 +252,7 @@ Arguments* parse_command_line(int argc, char** argv) {
 			}
 		}
 		else usage_error();
-		 
+	} 
 	args = file_checking(args);
 	return args;
 }
@@ -296,7 +298,7 @@ int connect_socket(char* port, Arguments* args) {
 	hints.ai_family = AF_INET; 		 // IPv4
 	hints.ai_socktype = SOCK_STREAM; // TCP
 	int err;
-	if (err = getaddrinfo("localhost", port, &hints, &ai) != 0) {
+	if ((err = getaddrinfo("localhost", port, &hints, &ai))) {
 		fprintf(stderr, "SOMETHING WRONG HAPPENED WITH ADDRESS");
 		freeaddrinfo(ai);
 		exit(99); //debug 
@@ -319,7 +321,7 @@ int connect_socket(char* port, Arguments* args) {
 char* removeNewline(char* string) {
 	char* buffer = strdup(string);
 	for (int i = 0 ; i < (int)strlen(string) ; i++) {
-		if (buffer[i] = '\n') {
+		if (buffer[i] == '\n') {
 			buffer[i] = '\0';
 			buffer = (char*)realloc(buffer, (i+1) * sizeof(char));
 			break;
@@ -445,17 +447,17 @@ int write_message(Message* message, int socketFD) {
 void write_img_to_file(int socket, Message* response, Arguments* args) {
 	// get file size
 	FILE* stream = args->outputFile;
-	uint32_t* size = (uint8_t*)malloc(sizeof(uint32_t));
+	uint32_t* size = (uint32_t*)malloc(sizeof(uint32_t));
 	read(socket, size, sizeof(uint32_t));
 
 	// write to output stream
-	uint8_t* imageData = (uint8_t*)malloc(*buffer);
-	read(socket, imageData, *buffer);
+	uint8_t* imageData = (uint8_t*)malloc(*size);
+	read(socket, imageData, *size);
 	
 	size_t total = 0;
 	const uint8_t* pointer = imageData;
-	while (total < length) {
-		ssize_t written = frwite(pointer + total, (size_t)*buffer, stream);
+	while (total < *size) {
+		ssize_t written = fwrite(pointer + total, sizeof(uint8_t), (size_t)*size, stream);
 		if (written < 0) {
 			perror("WRITE TO FILE ERROR\n"); // debug
 		}
@@ -465,7 +467,31 @@ void write_img_to_file(int socket, Message* response, Arguments* args) {
 		}
 		total += written;
 	}
-	free((uint32_t*)buffer);
+	free((uint32_t*)size);
+}
+
+char* byte_to_string(uint8_t* input, uint32_t length) {
+	char* string = (char*)malloc(length+1);
+	memcpy(string, input, length);
+	string[length] = '\0';
+	return string;
+}
+
+void print_error_message(int socket) {
+	// error msg size
+	uint32_t* size = (uint32_t*)malloc(sizeof(uint32_t));
+	read(socket, size, sizeof(uint32_t));
+	
+	//get message as byte stream
+	uint8_t* inputStream = (uint8_t*)malloc(sizeof(uint8_t));
+	read(socket, inputStream, sizeof(uint8_t));
+
+	// print to stderr
+	char* errMsg = byte_to_string(inputStream, *size);
+	fprintf(stderr, runtimeErrMsg, errMsg);
+	free((char*)errMsg);
+	free((uint32_t*)size);
+	free((uint8_t*)inputStream);
 }
 
 /* read from socket
@@ -481,10 +507,10 @@ void read_message(int socket, Arguments* args) {
 
 	// read prefix first
 	uint32_t* prefixBuffer = (uint32_t*)malloc(sizeof(uint32_t));
-	read(socket, buffer, sizeof(uint32_t));
-	if (prefixBuffer != imgPrefix) {
+	read(socket, prefixBuffer, sizeof(uint32_t));
+	if (*prefixBuffer != imgPrefix) {
 		free((uint32_t*)prefixBuffer);
-		comminication_error();
+		communication_error();
 	}
 	free((uint32_t*)prefixBuffer);
 
@@ -495,6 +521,7 @@ void read_message(int socket, Arguments* args) {
 		write_img_to_file(socket, serverMessage, args);
 	}
 	if (*opBuffer == errorMessage) {
+		print_error_message(socket);
 	}
 
 }
@@ -512,25 +539,24 @@ void read_message(int socket, Arguments* args) {
  * await response
  * write to output file or stdout
  */
-void client_runtime(Arguments* args, int socketFD) {
+void client_runtime(Arguments* args, int socketFD) { // might have to do a while loop
 	if (!input_file_or_stdin(args)) { // read from stdin
 		char* filename = get_filename_stdin();
 		args->imgFile = fopen(removeNewline(filename), "r");
 		free((char*)filename);
 		if (!args->imgFile) {
-			// send a bad message and read later?
+			dprintf(socketFD, "%i", badRequest);  // unsure
 		} 
-		Message* message = format_message(args);
-		int result = write_message(message, socketFD);
+		else { 
+			Message* message = format_message(args);
+			int result = write_message(message, socketFD);
+		}
 	}
 	else {
 		Message* message = format_message(args);
 		int result = write_message(message, socketFD);
-		
-		int readFD = dup(sockeFD);	
-
-		// wait for response
 	}
+	read_message(socketFD, args);
 }
 
 

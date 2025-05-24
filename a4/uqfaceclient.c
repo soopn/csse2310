@@ -89,6 +89,8 @@ Message* format_message (Arguments* args);
 ssize_t send_all(int socketFD, uint8_t* buffer, size_t len);
 void populate_message_buffer (Message* message, uint8_t* buffer);
 int write_message (Message* message, int socketFD);
+void read_message(int socket, Arguments* args);
+void write_img_to_file(int socket, Message* response, Arguments* args);
 ssize_t send_with_header (int socketFD, uint8_t* buffer, size_t length);
 void client_runtime (Arguments* args, int socketFD);
 
@@ -98,6 +100,7 @@ void client_runtime (Arguments* args, int socketFD);
  * portnum must always be the first argument cannot be empty
  * TODO:
  * unexpected argument checking (might not be necessary?)
+ * replace everything with open() with O_CREAT | O_TRUNC, S_IRWXU
  */
 
 int main(int argc, char** argv)
@@ -131,7 +134,6 @@ void communication_error(void) {
 	fprintf(stderr, communicationErr);
 	exit(EXIT_COMMUNICATION);
 }
-
 
 void has_empty_string(int argc, char** argv) {
 	argv++; // remove program name
@@ -196,7 +198,7 @@ Arguments* init_arguments(void) { // sets all pointers to NULL
 	args->replaceFilename = NULL;
 	args->replaceFile = NULL;
 	args->outputFilename = NULL;
-	args->outputFile = NULL;
+	args->outputFile = stdout;
 	args->imgFilename = NULL;
 	args->imgFile = NULL;
 	return args;
@@ -220,6 +222,7 @@ Arguments* parse_command_line(int argc, char** argv) {
 	argv += 2; // remove program name and portnum
 	argc -= 2;
 	Arguments* args = init_arguments(); // malloc'd
+	bool print_to_file = false;
 
 	for (int i = 0 ; i < argc; i++) {
 		if (!strcmp(argv[i], replaceFileArg)) {
@@ -247,7 +250,7 @@ Arguments* parse_command_line(int argc, char** argv) {
 			}
 		}
 		else usage_error();
-	}
+		 
 	args = file_checking(args);
 	return args;
 }
@@ -438,6 +441,33 @@ int write_message(Message* message, int socketFD) {
 	return result;
 }
 
+// TODO: maybe check for valid size
+void write_img_to_file(int socket, Message* response, Arguments* args) {
+	// get file size
+	FILE* stream = args->outputFile;
+	uint32_t* size = (uint8_t*)malloc(sizeof(uint32_t));
+	read(socket, size, sizeof(uint32_t));
+
+	// write to output stream
+	uint8_t* imageData = (uint8_t*)malloc(*buffer);
+	read(socket, imageData, *buffer);
+	
+	size_t total = 0;
+	const uint8_t* pointer = imageData;
+	while (total < length) {
+		ssize_t written = frwite(pointer + total, (size_t)*buffer, stream);
+		if (written < 0) {
+			perror("WRITE TO FILE ERROR\n"); // debug
+		}
+		if (written == 0) {
+			perror("UNEXPECTED EOF OR SIGPIPE"); // debug
+			break;
+		}
+		total += written;
+	}
+	free((uint32_t*)buffer);
+}
+
 /* read from socket
  * 
  * CORRECT FORMAT ==> operation == 2; prefix correct; img size, img content
@@ -446,7 +476,7 @@ int write_message(Message* message, int socketFD) {
  * then print stderr communicationErr; exit 1
  *
  */
-void read_message(int socket) {
+void read_message(int socket, Arguments* args) {
 	Message* serverMessage = init_message();
 
 	// read prefix first
@@ -462,6 +492,7 @@ void read_message(int socket) {
 	uint8_t* opBuffer = (uint8_t*)malloc(sizeof(uint8_t));
 	read(socket, opBuffer, sizeof(uint8_t));
 	if (*opBuffer == outputImage) {
+		write_img_to_file(socket, serverMessage, args);
 	}
 	if (*opBuffer == errorMessage) {
 	}

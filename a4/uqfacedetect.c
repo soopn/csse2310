@@ -138,8 +138,9 @@ bool valid_max_clients (char* input) {
 
 // TODO: this part i guess
 // 		 use strtoul REF: found from atol
+// 		 magic number
 bool valid_max_size (char* input) {
-	unsigned long buffer = strtoul(input, NULL, 32);
+	unsigned long buffer = strtoul(input, NULL, 32); //magic number
 	if (buffer > MAX_SIZE) return false;
 	return true;	
 }
@@ -233,8 +234,9 @@ int open_listen_connection (Arguments* args) {
     int err; //debugging
     if ((err = getaddrinfo(NULL, args->port, &hints, &ai))) {
         freeaddrinfo(ai);
-        fprintf(stderr, "%s\n", gai_strerror(err));
-        exit(99); // Could not determine address
+		fprintf(stderr, portErrMsg, args->port);
+		clean(args);
+        exit(EXIT_PORT); // Could not determine address
     }
 
     // Create a socket
@@ -256,9 +258,11 @@ int open_listen_connection (Arguments* args) {
 
     // Bind socket to address
     if (bind(listenFD, (struct sockaddr*)ai->ai_addr, sizeof(struct sockaddr)) < 0) { // not sure about the casting
-        perror("Binding"); // debug
 		close(listenFD);
-        exit(3);
+        freeaddrinfo(ai);
+		fprintf(stderr, portErrMsg, args->port);
+		clean(args);
+        exit(EXIT_PORT); // Could not determine address
     }
 	
 	// Get portnum

@@ -29,7 +29,7 @@ const char* const responseFilename = "/local/courses/csse2310/resources/a4/respo
 
 const int CONST_MAX_CLIENTS = 10000;
 const uint32_t imgPrefix = 0x23107231;
-//TODO: const uint32_t maxSize = ??
+const uint32_t MAX_SIZE = (1UL << 32) - 1; 
 //---------------------------------------------------------------------------//
 
 								/* STRUCTS */
@@ -51,10 +51,10 @@ typedef struct {
 } Message;
 
 typedef enum {
-	faceDetect = 0;
-	faceReplace = 1;
-	outputImage = 2;
-	errorMessage = 3;
+	faceDetect = 0,
+	faceReplace = 1,
+	outputImage = 2,
+	errorMessage = 3
 } OperationType;
 
 typedef struct {
@@ -87,6 +87,7 @@ OpenCVstruct* init_cascade_struct (Arguments* args);
 int open_listen_connection (Arguments* args);
 
 //---------------------------------------------------------------------------//
+// TODO: redirect all stdout and stderr (EXCEPT LISTENING PORT NUM AND ERROR MSGS) to /dev/null
 int main (int argc, char** argv) {
 	Arguments* args = argument_check(argc, argv);
 	FILE* tmpFile = tmp_file_check(args);

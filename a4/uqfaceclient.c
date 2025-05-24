@@ -31,10 +31,10 @@ const uint32_t imgPrefix = 0x23107231;
 							/* STRUCTS */
 //---------------------------------------------------------------------------//
 typedef enum {
-	faceDetect = 0;
-	faceReplace = 1;
-	outputImage = 2;
-	errorMessage = 3;
+	faceDetect = 0,
+	faceReplace = 1,
+	outputImage = 2,
+	errorMessage = 3
 } OperationType;
  
 typedef enum {
@@ -47,25 +47,33 @@ typedef enum {
 } ExitStatus;
 
 typedef struct {
-	char* replaceFileName;
+	char* replaceFilename;
 	FILE* replaceFile;
-	char* outputFileName;
+	char* outputFilename;
 	FILE* outputFile;
-	char* imgFileName;
+	char* imgFilename;
 	FILE* imgFile;
 } Arguments;
+
+typedef struct {
+	uint32_t prefix;
+	uint8_t operation;
+	uint32_t detectImgSize;
+	uint32_t replaceImgSize;
+} Message;
 //---------------------------------------------------------------------------//
 
-void usage_error();
+void usage_error(void);
 bool is_argument (char* string);
 void duplicate_argument_check (Arguments* args, const char* const argument);
 void has_portnum (char** argv);
-Arguments* init_arguments ();
+Arguments* init_arguments (void);
 Arguments* parse_command_line (int argc, char** argv);
 Arguments* file_checking (Arguments* args);
 int connect_socket (char* port, Arguments* args);
 bool input_file_or_stdin (Arguments* args);
 char* removeNewline (char* string);
+Message* init_message(void);
 
 
 /* COMMAND LINE ARGUMENTS
@@ -84,7 +92,7 @@ int main(int argc, char** argv)
 								/* OTHER FUNCTIONS*/
 //-----------------------------------------------------------------------------//
 
-void usage_error() {
+void usage_error(void) {
 	fprintf(stderr, usageErrMsg);
 	exit(EXIT_USAGE);
 }
@@ -136,17 +144,17 @@ bool is_argument (char* string) {
 // check if given argument has already been initialised in args
 void duplicate_argument_check (Arguments* args, const char* const argument) {
 	if (argument == replaceFileArg) {
-		if (args->replaceFileName != NULL) {
+		if (args->replaceFilename != NULL) {
 			usage_error();
 		}
 	}
 	if (argument == outputFileArg) {
-		if (args->outputFileName != NULL) {
+		if (args->outputFilename != NULL) {
 			usage_error();
 		}
 	}
 	if (argument == detectImgArg) {
-		if (args->imgFileName != NULL) {
+		if (args->imgFilename != NULL) {
 			usage_error();
 		}
 	}
@@ -157,15 +165,23 @@ void has_portnum (char** argv) {
 	return;
 }
 
-Arguments* init_arguments () { // sets all pointers to NULL
+Arguments* init_arguments (void) { // sets all pointers to NULL
 	Arguments* args = (Arguments*)malloc(sizeof(Arguments));
-	args->replaceFileName = NULL;
+	args->replaceFilename = NULL;
 	args->replaceFile = NULL;
-	args->outputFileName = NULL;
+	args->outputFilename = NULL;
 	args->outputFile = NULL;
-	args->imgFileName = NULL;
+	args->imgFilename = NULL;
 	args->imgFile = NULL;
 	return args;
+}
+
+Message* init_message(void) {
+	Message* message = (Message*)malloc(sizeof(Message));
+	message->prefix = 0;
+	message->operation = 3; // 0 is a valid operation 3 for error
+	message->size1 = 0;
+	message->size2; 0;
 }
 
 Arguments* parse_command_line (int argc, char** argv) {
@@ -181,7 +197,7 @@ Arguments* parse_command_line (int argc, char** argv) {
 			i = increment_and_check(i, argc);
 			if (!is_argument(argv[i])) {
 				duplicate_argument_check(args, replaceFileArg);
-				args->replaceFileName = strdup(argv[i]);
+				args->replaceFilename = strdup(argv[i]);
 				continue;
 			}
 		}
@@ -189,7 +205,7 @@ Arguments* parse_command_line (int argc, char** argv) {
 			i = increment_and_check(i, argc);
 			if (!is_argument(argv[i])) {
 				duplicate_argument_check(args, outputFileArg);
-				args->outputFileName = strdup(argv[i]);
+				args->outputFilename = strdup(argv[i]);
 				continue;
 			}
 		}
@@ -197,7 +213,7 @@ Arguments* parse_command_line (int argc, char** argv) {
 			i = increment_and_check(i, argc);
 			if (!is_argument(argv[i])) {
 				duplicate_argument_check(args, detectImgArg);
-				args->imgFileName = strdup(argv[i]);
+				args->imgFilename = strdup(argv[i]);
 				continue;
 			}
 		}
@@ -209,7 +225,7 @@ Arguments* parse_command_line (int argc, char** argv) {
 
 // true if file present, false otherwise
 bool input_file_or_stdin (Arguments* args) {
-	if (args->imgFileName || args->replaceFileName) {
+	if (args->imgFilename || args->replaceFilename) {
 		return true;
 	}
 	else return false;
@@ -219,22 +235,22 @@ bool input_file_or_stdin (Arguments* args) {
 // 		 write file with "rw" access
 // 		 add closing of other opened files if they passed
 Arguments* file_checking (Arguments* args) {
-	if (args->imgFileName != NULL) {
-		args->imgFile = fopen(args->imgFileName, "r");
+	if (args->imgFilename != NULL) {
+		args->imgFile = fopen(args->imgFilename, "r");
 		if (!args->imgFile) {
-			empty_input_file(args->imgFileName);
+			empty_input_file(args->imgFilename);
 		}
 	}
-	if (args->replaceFileName != NULL) {
-		args->replaceFile = fopen(args->replaceFileName, "r");
+	if (args->replaceFilename != NULL) {
+		args->replaceFile = fopen(args->replaceFilename, "r");
 		if (!args->replaceFile) {
-			empty_input_file(args->replaceFileName);
+			empty_input_file(args->replaceFilename);
 		}
 	}
-	if (args->outputFileName != NULL) { 
-		args->outputFile = fopen(args->outputFileName, "w");// should be open (truncate if exist, write if not)
+	if (args->outputFilename != NULL) { 
+		args->outputFile = fopen(args->outputFilename, "w");// should be open (truncate if exist, write if not)
 		if (!args->outputFile) {
-			empty_output_file(args->replaceFileName);
+			empty_output_file(args->outputFilename);
 		}
 	}
 	return args;
@@ -288,6 +304,62 @@ char* removeNewline (char* string) {
 	return buffer;
 }
 
+char* get_filename_stdin (void) {
+	char* buffer = NULL;
+	size_t len = 0;
+	ssize_t numLines;
+	numLines = getline(&buffer, &len, stdin); // get file from stdin
+	return buffer;
+}
+
+long get_file_size (FILE* file) { // REF: fseek man page
+	fseek(file, 0, SEEK_END);
+	long size ftell(file);
+	rewind(file);
+	return size;
+}
+
+/* WELL BEHAVED CLIENT ONLY SENDS:
+ * 0 for face detection request
+ * 1 for face replacement request
+ * set 3 else I guess
+ */
+int determine_operation (Arguments* args) { 
+	if (args->imgFilename != NULL) {
+		if (args-replaceFilename != NULL) {
+			return 1; // face replace
+		}
+		else {
+			return 0; // face detect
+		}
+	}
+	return 3;
+}
+
+
+Message* format_message (Arguments* args) {
+	message* = init_message();
+
+	message->prefix = htonl(imgPrefix);
+	message->operation = determine_operation(args);
+	message->detectImgSize = getfilesize(args->imgFile);
+	if (!message->detectImgSize) { // error in image size
+		message->operation = 3;
+	}
+	if (message->operation = 1) {
+		message->replaceImgSize = getfilesize(args->replaceFile);
+		if (!message->replaceImgSize) { // error in image size
+			message->operation = 3;
+		}
+	}
+	return message;
+
+}
+
+void write_message (Message* message) {
+	uint8_t buffer = (uint8_t*)malloc(sizeof(Message));	
+}
+
 /* ORDER OF BYTESTREAM
  * 4 byte: imgPrefix		(uint32_t)
  * 1 byte: OperationType 	(uint8_t) 
@@ -295,24 +367,32 @@ char* removeNewline (char* string) {
  * M byte: img1				(???)
  * 4 byte: imgsize2			(uint32_t)
  * N byte: img2				(???)
+ *
+ * SPEC:
+ * send send image with header
+ * await response
+ * write to output file or stdout
  */
 void client_runtime (Arguments* args, int socketFD) {
 	if (!input_file_or_stdin(args)) { // read from stdin
-		char* buffer = NULL;
-		size_t len = 0;
-		ssize_t numLines;
-		numLines = getline(&buffer, &len, stdin); // get file from stdin
+		char* buffer = get_filename_stdin();
 		FILE* inputFile = fopen(removeNewline(buffer), "r");
-
-
+		free((char*)buffer);
+		if (!inputFile) {
+			// send a bad message and read later?
+		}
 		// doing something to send stuff over
+	}
+	else {
+		Message* message = format_message(args);
+		// send header until file contents
+		write_header(message);
 		
 
-		return 0;
+		// wait for response
 	}
+	return 0;
 
 }
 
 
-
-}

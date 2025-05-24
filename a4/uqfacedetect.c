@@ -16,7 +16,7 @@
 
 								/* CONSTANTS */
 //---------------------------------------------------------------------------//
-const char* const usageErrMsg = "Usage: ./uqfacedetect maxclients maxsize [portNumber]\n";
+const char* const usageErrMsg = "Usage: ./uqfacedetect maxclients maxsize [portnum]\n";
 const char* const imageWriteErrMsg = "uqfacedetect: unable to open the image file for writing\n";
 const char* const cascadeErrMsg = "uqfacedetect: unable to load a cascade classifier\n";
 const char* const portErrMsg = "uqfacedetect: cannot listen on given port \"%s\"\n";
@@ -44,10 +44,10 @@ typedef enum {
 typedef struct {
 	uint32_t prefix;
 	uint8_t operation;
-	uint32_t size1;
-	bool* image1; // pointer to first byte of img1??
-	uint32_t size2;
-	bool* image2; // pointer to first byte of img2??
+	uint32_t detectImgSize;
+	uint8_t* detectImgContent;
+	uint32_t replaceImgSize;
+	uint8_t* replaceImgContent;
 } Message;
 
 typedef enum {
@@ -139,6 +139,8 @@ bool valid_max_clients (char* input) {
 // TODO: this part i guess
 // 		 use strtoul REF: found from atol
 bool valid_max_size (char* input) {
+	unsigned long buffer = strtoul(input, NULL, 32);
+	if (buffer > MAX_SIZE) return false;
 	return true;	
 }
 
@@ -161,7 +163,7 @@ Arguments* init_arguments () {
 	Arguments* args = (Arguments*)malloc(sizeof(Arguments));
 	args->maxClients = 0;
 	args->maxSize = 0;
-	args->port = NULL;
+	args->port = "0"; // default ephemeral
 	return args;
 }
 
@@ -223,9 +225,6 @@ OpenCVstruct* init_cascade_struct (Arguments* args) {
 int open_listen_connection (Arguments* args) {
     struct addrinfo* ai = 0;
     struct addrinfo hints;
-	struct sockaddr_in fromAddr;
-	socklen_t fromAddrSize = sizeof(struct sockaddr_in);
-
     memset(&hints, 0, sizeof(struct addrinfo));
     hints.ai_family = AF_INET; // IPv4
     hints.ai_socktype = SOCK_STREAM;
@@ -239,8 +238,8 @@ int open_listen_connection (Arguments* args) {
     }
 
     // Create a socket
-    int listenfd = socket(AF_INET, SOCK_STREAM, 0); // 0=default protocol (TCP)
-    if (listenfd < 0) { // error in listening
+    int listenFD = socket(AF_INET, SOCK_STREAM, 0); // 0=default protocol (TCP)
+    if (listenFD < 0) { // error in listening
 		clean(args);
 		exit_port(args->port);
     }
@@ -256,20 +255,23 @@ int open_listen_connection (Arguments* args) {
 	*/
 
     // Bind socket to address
-    if (bind(listenfd, (struct sockaddr*)ai->ai_addr, sizeof(struct sockaddr)) < 0) { // not sure about the casting
-        perror("Binding");
-		close(listenfd);
+    if (bind(listenFD, (struct sockaddr*)ai->ai_addr, sizeof(struct sockaddr)) < 0) { // not sure about the casting
+        perror("Binding"); // debug
+		close(listenFD);
         exit(3);
     }
-
-	/*
-	if (getnameinfo((struct sockaddr*)ai->ai_addr, sizeof(struct sockaddr), // I DONT GET IT
-					NULL, NI_MAXHOST,
-					NULL, 0, 0));
-	fprintf(stderr, "%d\n", ntohs(ai->ai_addr->sin_port));
-	*/
+	
+	// Get portnum
+	struct sockaddr_in ad;
+	socklen_t len = sizeof(struct sockaddr_in);
+	memset(&ad, 0, sizeof(struct sockaddr_in));
+	if (getsockname(listenFD, (struct sockaddr*)&ad, &len)) {
+		perror("sockname"); // debug
+		exit(4);
+	}
+	fprintf(stderr, "%d\n", ntohs(ad.sin_port));
 	fflush(stderr);
 	fflush(stdout);
 
-	return listenfd;
+	return listenFD;
 }

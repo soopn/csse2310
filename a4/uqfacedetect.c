@@ -70,25 +70,25 @@ typedef struct {
 } OpenCVstruct;
 //---------------------------------------------------------------------------//
 
-void exit_usage_error ();
-void exit_image_error ();
-void exit_cascade_error ();
-void exit_port (char* port);
-bool is_num (char* inputString);
-bool valid_max_clients (char* input);
-bool valid_max_size (char* input);
-bool valid_port (char* input);
-void has_empty_string (int argc, char** argv);
-Arguments* init_arguments ();
-Arguments* argument_check (int argc, char** argv);
-void clean (Arguments* args);
-FILE* tmp_file_check (Arguments* args);
-OpenCVstruct* init_cascade_struct (Arguments* args);
-int open_listen_connection (Arguments* args);
+void exit_usage_error(void);
+void exit_image_error(void);
+void exit_cascade_error(void);
+void exit_port(char* port);
+bool is_num(char* inputString);
+bool valid_max_clients(char* input);
+bool valid_max_size(char* input);
+bool valid_port(char* input);
+void has_empty_string(int argc, char** argv);
+Arguments* init_arguments(void);
+Arguments* argument_check(int argc, char** argv);
+void clean(Arguments* args);
+FILE* tmp_file_check(Arguments* args);
+OpenCVstruct* init_cascade_struct(Arguments* args);
+int open_listen_connection(Arguments* args);
 
 //---------------------------------------------------------------------------//
 // TODO: redirect all stdout and stderr (EXCEPT LISTENING PORT NUM AND ERROR MSGS) to /dev/null
-int main (int argc, char** argv) {
+int main(int argc, char** argv) {
 	Arguments* args = argument_check(argc, argv);
 	FILE* tmpFile = tmp_file_check(args);
 	OpenCVstruct* OpenCVparameters = init_cascade_struct(args);
@@ -98,27 +98,27 @@ int main (int argc, char** argv) {
 
 								/* OTHER FUNCTIONS*/
 //-----------------------------------------------------------------------------//
-void exit_usage_error () {
+void exit_usage_error(void) {
 	fprintf(stderr, usageErrMsg);
 	exit(EXIT_USAGE);
 }
 
-void exit_image_error () {
+void exit_image_error(void) {
 	fprintf(stderr, imageWriteErrMsg);
 	exit(EXIT_IMAGE_WRITE);
 }
 
-void exit_cascade_error () {
+void exit_cascade_error(void) {
 	fprintf(stderr, cascadeErrMsg);
 	exit(EXIT_CASCADE);
 }
 
-void exit_port (char* port) { //might not be int
+void exit_port(char* port) { //might not be int
 	fprintf(stderr, portErrMsg, port);
 	exit(EXIT_PORT);
 }
 
-bool is_num (char* inputString) {
+bool is_num(char* inputString) {
 	for (int i = 0 ; i < (int)strlen(inputString) ; i++) {
 		if (!isdigit(inputString[i])) {
 			return false;
@@ -127,7 +127,7 @@ bool is_num (char* inputString) {
 	return true;
 }
 
-bool valid_max_clients (char* input) { 
+bool valid_max_clients(char* input) { 
 	if (!is_num(input)) return false;
 	int buffer = atoi(input);
 	if (buffer > CONST_MAX_CLIENTS || buffer < 0) {
@@ -139,17 +139,17 @@ bool valid_max_clients (char* input) {
 // TODO: this part i guess
 // 		 use strtoul REF: found from atol
 // 		 magic number
-bool valid_max_size (char* input) {
+bool valid_max_size(char* input) {
 	unsigned long buffer = strtoul(input, NULL, 32); //magic number
 	if (buffer > MAX_SIZE) return false;
 	return true;	
 }
 
-bool valid_port (char* input) {
+bool valid_port(char* input) {
 	return true;	
 }
 
-void has_empty_string (int argc, char** argv) {
+void has_empty_string(int argc, char** argv) {
 	argv++; // remove program name
 	argc--;
 	for (int i = 0; i < argc ; i++) {
@@ -160,7 +160,7 @@ void has_empty_string (int argc, char** argv) {
 	return;
 }
 
-Arguments* init_arguments () {
+Arguments* init_arguments(void) {
 	Arguments* args = (Arguments*)malloc(sizeof(Arguments));
 	args->maxClients = 0;
 	args->maxSize = 0;
@@ -169,7 +169,7 @@ Arguments* init_arguments () {
 }
 
 // TODO: maxsize checking
-Arguments* argument_check (int argc, char** argv) {
+Arguments* argument_check(int argc, char** argv) {
 	has_empty_string(argc, argv);
 	argc--; // remove program name
 	argv++; // starts at max size
@@ -195,12 +195,12 @@ Arguments* argument_check (int argc, char** argv) {
 	}
 	return args;
 }
-void clean (Arguments* args) {
+void clean(Arguments* args) {
 	free((char*)args->port);
 	free((Arguments*)args);
 }
 
-FILE* tmp_file_check (Arguments* args) {
+FILE* tmp_file_check(Arguments* args) {
 	FILE* tmp = fopen(tmpFileDir,"w");
 	if (!tmp) {
 		clean(args);
@@ -209,7 +209,7 @@ FILE* tmp_file_check (Arguments* args) {
 	return tmp;
 }
 	
-OpenCVstruct* init_cascade_struct (Arguments* args) {
+OpenCVstruct* init_cascade_struct(Arguments* args) {
 	OpenCVstruct* param = (OpenCVstruct*)calloc(1, sizeof(OpenCVstruct));
 	param->outputFile = NULL;
 	param->faceCascade = (CvHaarClassifierCascade*)cvLoad(faceCascadeFilename, NULL, NULL, NULL);
@@ -223,7 +223,7 @@ OpenCVstruct* init_cascade_struct (Arguments* args) {
 
 // TODO: remove debugging
 // 		 add mutex to limit maximum clients
-int open_listen_connection (Arguments* args) {
+int open_listen_connection(Arguments* args) {
     struct addrinfo* ai = 0;
     struct addrinfo hints;
     memset(&hints, 0, sizeof(struct addrinfo));

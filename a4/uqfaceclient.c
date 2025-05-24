@@ -76,7 +76,6 @@ bool is_argument (char* string);
 void duplicate_argument_check (Arguments* args, const char* const argument);
 void has_portnum (char** argv);
 Arguments* init_arguments (void);
-Message* init_message(void);
 Arguments* parse_command_line (int argc, char** argv);
 Arguments* file_checking (Arguments* args);
 int connect_socket (char* port, Arguments* args);
@@ -500,7 +499,7 @@ void print_error_message(int socket) {
  * 				  ==> operation == 3; prefix correct; err size, err content
  * WRONG FORMAT ==> prefix wrong
  * then print stderr communicationErr; exit 1
- *
+ * TODO: free memory
  */
 void read_message(int socket, Arguments* args) {
 	Message* serverMessage = init_message();

@@ -28,6 +28,7 @@ const char* const eyeCascadeFilename = "/local/courses/csse2310/resources/a4/haa
 const char* const responseFilename = "/local/courses/csse2310/resources/a4/responsefile";
 
 const int CONST_MAX_CLIENTS = 10000;
+const int numStatistics = 5;
 const uint32_t imgPrefix = 0x23107231;
 const uint32_t MAX_SIZE = (1UL << 32) - 1; 
 //---------------------------------------------------------------------------//
@@ -68,6 +69,33 @@ typedef struct {
 	CvHaarClassifierCascade* faceCascade;
 	CvHaarClassifierCascade* eyeCascade;
 } OpenCVstruct;
+
+enum InvalidMessageCodes {
+	INVALID_MESSAGE = 0,
+	INVALID_OPERATION = 1,
+	IMAGE_ZERO_BYTES = 2,
+	IMAGE_TOO_LARGE = 3,
+	IMAGE_LOAD_ERROR = 4,
+	IMAGE_NO_FACE = 5
+};
+
+const char** errorMessages = {
+	"invalid message",
+	"invalid operation type",
+	"image is 0 bytes",
+	"image too large",
+	"invalid image",
+	"no faces detected in image" 
+};
+
+const char** statistics = {
+	"Connected clients: ",
+	"Clients completed: ",
+	"Face detection requests: ",
+	"Face replace requests: ",
+	"Malformed requests: "
+};
+
 //---------------------------------------------------------------------------//
 
 void exit_usage_error(void);
@@ -79,6 +107,7 @@ bool valid_max_clients(char* input);
 bool valid_max_size(char* input);
 bool valid_port(char* input);
 void has_empty_string(int argc, char** argv);
+Message* init_message(void);
 Arguments* init_arguments(void);
 Arguments* argument_check(int argc, char** argv);
 void clean(Arguments* args);
@@ -88,6 +117,7 @@ int open_listen_connection(Arguments* args);
 
 //---------------------------------------------------------------------------//
 // TODO: redirect all stdout and stderr (EXCEPT LISTENING PORT NUM AND ERROR MSGS) to /dev/null
+// 		 rename enums
 int main(int argc, char** argv) {
 	Arguments* args = argument_check(argc, argv);
 	FILE* tmpFile = tmp_file_check(args);
@@ -160,6 +190,17 @@ void has_empty_string(int argc, char** argv) {
 	return;
 }
 
+Message* init_message(void) {
+	Message* message = (Message*)malloc(sizeof(Message));
+	message->prefix = 0;
+	message->operation = 3; // 0 is a valid operation 3 for error
+	message->detectImgSize = 0;
+	message->detectImgContent = NULL;
+	message->replaceImgSize = 0;
+	message->replaceImgContent = NULL;
+	return message;
+}
+ 
 Arguments* init_arguments(void) {
 	Arguments* args = (Arguments*)malloc(sizeof(Arguments));
 	args->maxClients = 0;
@@ -278,4 +319,33 @@ int open_listen_connection(Arguments* args) {
 	fflush(stdout);
 
 	return listenFD;
+}
+ 
+void send_error_message (int socket, )
+
+void read_message(int socket, Arguments* args) {
+	Message* serverMessage = init_message();
+
+	// read prefix first
+	uint32_t* prefixBuffer = (uint32_t*)malloc(sizeof(uint32_t));
+	read(socket, prefixBuffer, sizeof(uint32_t));
+	if (*prefixBuffer != imgPrefix) {
+		free((uint32_t*)prefixBuffer);
+	}
+	free((uint32_t*)prefixBuffer);
+
+	// read operation
+	uint8_t* opBuffer = (uint8_t*)malloc(sizeof(uint8_t));
+	read(socket, opBuffer, sizeof(uint8_t));
+	if (*opBuffer == outputImage) {
+	}
+}
+
+/* BEHAVIOUR:
+ *
+ * spawn thread for each connection
+ * ensure mutex of shared data structures, (CvHaarClassifierCascade)
+ */
+void server_runtime () {
+	int connections = 0;
 }

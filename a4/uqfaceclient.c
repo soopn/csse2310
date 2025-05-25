@@ -66,6 +66,9 @@ typedef struct {
 } Message;
 //---------------------------------------------------------------------------//
 
+// TODO: REMOVE THIS 
+void DEBUG_PRINT_MESSAGE(Message* message);
+
 void usage_error(void);
 void empty_input_file (char* filename);
 void empty_output_file (char* filename);
@@ -492,6 +495,19 @@ void print_error_message(int socket) {
 	free((char*)errMsg);
 	free((uint32_t*)size);
 	free((uint8_t*)inputStream);
+}
+
+// TODO: remove this
+void DEBUG_PRINT_MESSAGE(Message* message) {
+	printf("Prefix: %d\n", message->prefix);
+	printf("Operation: %d\n", message->operation);
+	printf("Image Size: %d\n", message->detectImgSize);
+	if (message->detectImgContent) printf("Image Exists\n");
+	else printf("Image doesn't exist\n");
+	if (message->replaceImgSize) printf("Image2 Size: %d\n", message->replaceImgSize);
+	else printf("Image2 doesn't exist\n");
+	if (message->replaceImgContent) printf("Image Exists\n");
+	else printf("Image2 doesn't exist\n");
 }
 
 /* read from socket

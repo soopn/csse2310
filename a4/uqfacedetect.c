@@ -69,10 +69,10 @@ typedef struct {
 } Message;
 
 typedef enum {
-	faceDetect = 0,
-	faceReplace = 1,
-	outputImage = 2,
-	errorMessage = 3
+	FACE_DETECT = 0,
+	FACE_REPLACE = 1,
+	OUTPUT_IMAGE = 2,
+	ERROR_MESSAGE = 3
 } OperationType;
 
 typedef struct {
@@ -137,6 +137,7 @@ Arguments* init_arguments(void);
 Arguments* argument_check(int argc, char** argv);
 void clean(Arguments* args);
 void tmp_file_check(Arguments* args);
+void write_to_temp_file (uint8_t* fileBuf, long fileSize); // needs a semaphone
 OpenCVstruct* init_cascade_struct(Arguments* args);
 int open_listen_connection(Arguments* args);
 long get_file_size(FILE* file);
@@ -377,6 +378,8 @@ void write_to_temp_file (uint8_t* fileBuf, long fileSize) {
 	int tempFile = open(tempFileDir, O_WRONLY | O_TRUNC);
 	write_from_memory(tempFile, fileBuf, fileSize);
 
+	free((uint8_t*) fileBuf);
+
 	// release semaphone
 	close(tempFile);
 }
@@ -416,7 +419,7 @@ void read_message(int socket, Arguments* args) {
 	// read operation
 	uint8_t* opBuffer = (uint8_t*)malloc(sizeof(uint8_t));
 	read(socket, opBuffer, sizeof(uint8_t));
-	if (*opBuffer == outputImage) {
+	if (*opBuffer == OUTPUT_IMAGE) {
 	}
 }
 

@@ -5,6 +5,8 @@
 #include <unistd.h>
 #include <string.h>
 #include <ctype.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -22,15 +24,30 @@ const char* const cascadeErrMsg = "uqfacedetect: unable to load a cascade classi
 const char* const portErrMsg = "uqfacedetect: cannot listen on given port \"%s\"\n";
 
 const char* const emptyString = "";
-const char* const tmpFileDir = "/tmp/imagefile.jpg";
+const char* const tempFileDir = "/tmp/imagefile.jpg";
 const char* const faceCascadeFileDir = "/local/courses/csse2310/resources/a4/haarcascade_frontalface_alt2.xml";
 const char* const eyeCascadeFileDir = "/local/courses/csse2310/resources/a4/haarcascade_eye_tree_eyeglasses.xml";
 const char* const responseFileDir = "/local/courses/csse2310/resources/a4/responsefile";
 
 const int CONST_MAX_CLIENTS = 10000; // might be uint32_t
-const int numStatistics = 5;
+const int numStatistics = 5; 
 const uint32_t msgPrefix = 0x23107231;
 const uint32_t MAX_SIZE = (1UL << 32) - 1; 
+
+// OPEN CV PARAMETERS
+const float haarScaleFactor = 1.1;
+const int haarMinNeighbours = 4;
+const int haarFlags = 0;
+const int haarMinSize = 0;
+const int haarMaxSize = 1000;
+const int ellipseStartAngle = 0;
+const int ellipseEndAngle = 360;
+const int lineThickness = 4;
+const int lineType = 8;
+const int shift = 0;
+const int bgraChannels = 4;
+const int alphaIndex = 3;
+
 //---------------------------------------------------------------------------//
 
 								/* STRUCTS */
@@ -119,7 +136,7 @@ Message* init_message(void);
 Arguments* init_arguments(void);
 Arguments* argument_check(int argc, char** argv);
 void clean(Arguments* args);
-FILE* tmp_file_check(Arguments* args);
+void tmp_file_check(Arguments* args);
 OpenCVstruct* init_cascade_struct(Arguments* args);
 int open_listen_connection(Arguments* args);
 long get_file_size(FILE* file);
@@ -130,7 +147,7 @@ ssize_t write_from_memory(int socket, const uint8_t* memory, size_t length);
 // 		 rename enums
 int main(int argc, char** argv) {
 	Arguments* args = argument_check(argc, argv);
-	FILE* tmpFile = tmp_file_check(args);
+	tmp_file_check(args);
 	OpenCVstruct* OpenCVparameters = init_cascade_struct(args);
 	int serverFD = open_listen_connection(args);
 	return 0;
@@ -245,13 +262,14 @@ void clean(Arguments* args) {
 	free((Arguments*)args);
 }
 
-FILE* tmp_file_check(Arguments* args) {
-	FILE* tmp = fopen(tmpFileDir,"w");
+// just to check, each thread will open the file themselves later to adhere to mutex
+void tmp_file_check(Arguments* args) {
+	FILE* tmp = fopen(tempFileDir,"w");
 	if (!tmp) {
 		clean(args);
 		exit(EXIT_IMAGE_WRITE);
 	}
-	return tmp;
+	fclose(tmp); // check if can be closed?
 }
 	
 OpenCVstruct* init_cascade_struct(Arguments* args) {
@@ -349,6 +367,20 @@ ssize_t write_from_memory(int socket, const uint8_t* memory, size_t length) {
 	}
 	return total;
 }
+
+/* writes temp file contents (from buffer) into tempfile
+ * TODO: protect with semaphone
+ */
+void write_to_temp_file (uint8_t* fileBuf, long fileSize) {
+	// semaphone thingy here
+	
+	int tempFile = open(tempFileDir, O_WRONLY | O_TRUNC);
+	write_from_memory(tempFile, fileBuf, fileSize);
+
+	// release semaphone
+	close(tempFile);
+}
+
  
 // IF FIRST 4 BYTES DONT WORK, SEND responsefile over socket as is, no 
 void send_error_message (int socket) {
@@ -386,6 +418,10 @@ void read_message(int socket, Arguments* args) {
 	read(socket, opBuffer, sizeof(uint8_t));
 	if (*opBuffer == outputImage) {
 	}
+}
+
+// TODO:
+void cv_detect_faces () {
 }
 
 void* client_handler(void* param) {

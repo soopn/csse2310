@@ -23,11 +23,11 @@ const char* const portErrMsg = "uqfacedetect: cannot listen on given port \"%s\"
 
 const char* const emptyString = "";
 const char* const tmpFileDir = "/tmp/imagefile.jpg";
-const char* const faceCascadeFilename = "/local/courses/csse2310/resources/a4/haarcascade_frontalface_alt2.xml";
-const char* const eyeCascadeFilename = "/local/courses/csse2310/resources/a4/haarcascade_eye_tree_eyeglasses.xml";
-const char* const responseFilename = "/local/courses/csse2310/resources/a4/responsefile";
+const char* const faceCascadeFileDir = "/local/courses/csse2310/resources/a4/haarcascade_frontalface_alt2.xml";
+const char* const eyeCascadeFileDir = "/local/courses/csse2310/resources/a4/haarcascade_eye_tree_eyeglasses.xml";
+const char* const responseFileDir = "/local/courses/csse2310/resources/a4/responsefile";
 
-const int CONST_MAX_CLIENTS = 10000;
+const int CONST_MAX_CLIENTS = 10000; // might be uint32_t
 const int numStatistics = 5;
 const uint32_t msgPrefix = 0x23107231;
 const uint32_t MAX_SIZE = (1UL << 32) - 1; 
@@ -87,7 +87,7 @@ enum ErrorMessageCodes {
 	IMAGE_NO_FACE = 5
 };
 
-const char** errorMessages = {
+const char* const errorMessages[] = {
 	"invalid message",
 	"invalid operation type",
 	"image is 0 bytes",
@@ -96,7 +96,7 @@ const char** errorMessages = {
 	"no faces detected in image" 
 };
 
-const char** statisticsList = {
+const char* const statisticsList[] = {
 	"Connected clients: ",
 	"Clients completed: ",
 	"Face detection requests: ",
@@ -122,6 +122,8 @@ void clean(Arguments* args);
 FILE* tmp_file_check(Arguments* args);
 OpenCVstruct* init_cascade_struct(Arguments* args);
 int open_listen_connection(Arguments* args);
+long get_file_size(FILE* file);
+ssize_t write_from_memory(int socket, const uint8_t* memory, size_t length);
 
 //---------------------------------------------------------------------------//
 // TODO: redirect all stdout and stderr (EXCEPT LISTENING PORT NUM AND ERROR MSGS) to /dev/null
@@ -178,12 +180,8 @@ bool valid_max_clients(char* input) {
 // 		 use strtoul REF: found from atol
 // 		 magic number
 bool valid_max_size(char* input) {
-	unsigned long buffer = strtoul(input, NULL, 32); //magic number
-	if (buffer > MAX_SIZE) return false;
-	return true;	
-}
-
-bool valid_port(char* input) {
+	long buffer = strtol(input, NULL, 32); //magic number
+	if (buffer > MAX_SIZE || buffer < 0) return false;
 	return true;	
 }
 
@@ -236,9 +234,7 @@ Arguments* argument_check(int argc, char** argv) {
 		free((Arguments*)args);
 		exit_usage_error();
 	}
-	else {
-		args->maxSize = strtoul(argv[1], NULL, 32); // 32 bit unsigned long?
-	}
+	args->maxSize = strtoul(argv[1], NULL, 32); // 32 bit unsigned long?
 	if (argv[2] != NULL) {
 		args->port = strdup(argv[2]); // malloc'd
 	}
@@ -261,8 +257,8 @@ FILE* tmp_file_check(Arguments* args) {
 OpenCVstruct* init_cascade_struct(Arguments* args) {
 	OpenCVstruct* param = (OpenCVstruct*)calloc(1, sizeof(OpenCVstruct));
 	param->outputFile = NULL;
-	param->faceCascade = (CvHaarClassifierCascade*)cvLoad(faceCascadeFilename, NULL, NULL, NULL);
-	param->eyeCascade = (CvHaarClassifierCascade*)cvLoad(eyeCascadeFilename, NULL, NULL, NULL);
+	param->faceCascade = (CvHaarClassifierCascade*)cvLoad(faceCascadeFileDir, NULL, NULL, NULL);
+	param->eyeCascade = (CvHaarClassifierCascade*)cvLoad(eyeCascadeFileDir, NULL, NULL, NULL);
 	if (!param->faceCascade || !param->eyeCascade) {
 		clean(args);
 		exit_cascade_error();
@@ -325,28 +321,62 @@ int open_listen_connection(Arguments* args) {
 	fprintf(stderr, "%d\n", ntohs(ad.sin_port));
 	fflush(stderr);
 	fflush(stdout);
-
 	return listenFD;
 }
- 
-// TODO:
-void send_error_message (int socket) {
-	// formatting message
-	Message* message = init_message();
-	message->operation = errorMessage;
-	message->detectImgSize = (uint32_t)strlen(errorMessages[INVALID_MESSAGE]);
-	//message->detectImgContent = 
+
+// assumes file is already opened
+long get_file_size(FILE* file) { // REF: fseek man page
+	fseek(file, 0, SEEK_END);
+	long size = ftell(file);
+	rewind(file);
+	return size;
 }
 
+ssize_t write_from_memory(int socket, const uint8_t* memory, size_t length) {
+	size_t total = 0;
+
+	while (total < length) {
+		ssize_t written = write(socket, memory + total, length - total);
+		if (written < 0) {
+			printf("WRITE ERROR\n");
+			break;
+		}
+		if (written == 0) {
+			printf("UNEXPECTED EOF OR SIGPIPE\n");
+			break;
+		}
+		total += written;
+	}
+	return total;
+}
+ 
+// IF FIRST 4 BYTES DONT WORK, SEND responsefile over socket as is, no 
+void send_error_message (int socket) {
+	// read and store response file
+	FILE* responseFile = fopen(responseFileDir, "r");
+	long responseFileSize = get_file_size(responseFile);
+	uint8_t* responseFileContents = (uint8_t*)malloc(responseFileSize);
+	fread(responseFileContents, sizeof(uint8_t), responseFileSize, responseFile);
+
+	// sends file contents without following communication protocol
+	write_from_memory(socket, responseFileContents, responseFileSize);
+	fclose(responseFile);
+	free((uint8_t*)responseFileContents);
+}
+
+/* Reads message from socket
+ * stores as message struct
+ * passes to OpenCV
+ */
 void read_message(int socket, Arguments* args) {
 	Message* serverMessage = init_message();
 
 	// read prefix first
 	uint32_t* prefixBuffer = (uint32_t*)malloc(sizeof(uint32_t));
 	read(socket, prefixBuffer, sizeof(uint32_t));
-	if (*prefixBuffer != msgPrefix) {
+	if (*prefixBuffer != msgPrefix) { // incorrect prefix
 		free((uint32_t*)prefixBuffer);
-		send_error_message (
+		send_error_message(socket);
 		return; // unsure
 	}
 	free((uint32_t*)prefixBuffer);
@@ -386,6 +416,7 @@ void server_runtime (int fdServer, Arguments* serverArgs) {
 		int* fdData = (int*)malloc(sizeof(int));
 		*fdData = fd;
 		pthread_t threadID;
+	}
 
 
 }

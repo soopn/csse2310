@@ -103,6 +103,7 @@ void client_runtime (Arguments* args, int socketFD);
  * TODO:
  * unexpected argument checking (might not be necessary?)
  * replace everything with open() with O_CREAT | O_TRUNC, S_IRWXU
+ * check what to do when file from stdin can't be opened (still gives an error message from server)
  */
 
 int main(int argc, char** argv)
@@ -375,7 +376,7 @@ Message* format_message(Arguments* args) {
 	message->detectImgContent = (uint8_t*)malloc(message->detectImgSize);
 
  	// copy file contents
-	fread(message->detectImgContent, 1, message->detectImgSize, args->imgFile);
+	fread(message->detectImgContent, 1, message->detectImgSize, args->imgFile); // might have to read till not EOF
 
 	if (message->operation == 1) {
 		message->replaceImgSize = get_file_size(args->replaceFile);
@@ -390,7 +391,7 @@ Message* format_message(Arguments* args) {
 	return message;
 }
 
-ssize_t send_with_header(int socketFD, uint8_t* buffer, size_t length) {
+ssize_t send_with_header(int socketFD, uint8_t* buffer, size_t length) { // TODO: remove the const and make the buffer const instead
 	size_t total = 0;
 	const uint8_t* pointer = buffer;
 

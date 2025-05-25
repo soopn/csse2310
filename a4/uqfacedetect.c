@@ -112,7 +112,7 @@ typedef struct {
 	uint32_t malformed;
 } Statistics;
 
-const char* const errorMessages[] = {
+const char* const errorMessageList[] = {
 	"invalid message",
 	"invalid operation type",
 	"image is 0 bytes",
@@ -443,10 +443,10 @@ void send_response_file (int socket) {
 // TODO: format error message to follow protocol:
 // 		 prefix; operation type; err msg size; err msg
 void send_error_message(int socket, ErrorMessageCodes errorCode) {
-	size_t errorMessageLength = strlen(errorMessages[errorCode]);
+	size_t errorMessageLength = strlen(errorMessageList[errorCode]);
 	
-
-	write(socket, errorMessages[errorCode], errorMessageLength);
+	Message* errorMessage = format_message(ERROR_MESSAGE, errorMessageLength, (uint8_t*)errorMessageList[errorCode]);
+	write_message(socket, errorMessage);
 }
 
 bool message_check(int socket, ssize_t numRead, uint32_t length) {

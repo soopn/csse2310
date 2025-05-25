@@ -6,6 +6,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <fcntl.h>
+#include <semaphore.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -29,7 +30,7 @@ const char* const faceCascadeFileDir = "/local/courses/csse2310/resources/a4/haa
 const char* const eyeCascadeFileDir = "/local/courses/csse2310/resources/a4/haarcascade_eye_tree_eyeglasses.xml";
 const char* const responseFileDir = "/local/courses/csse2310/resources/a4/responsefile";
 
-const int CONST_MAX_CLIENTS = 10000; // might be uint32_t
+const int MAX_CLIENTS = 10000; // might be uint32_t
 const int numStatistics = 5; 
 const uint32_t msgPrefix = 0x23107231;
 const uint32_t MAX_SIZE = (1UL << 32) - 1; 
@@ -50,7 +51,7 @@ const int alphaIndex = 3;
 
 //---------------------------------------------------------------------------//
 
-								/* STRUCTS */
+							/* STRUCTS & ENUMS */
 //---------------------------------------------------------------------------//
 typedef enum {
 	EXIT_USAGE = 6,
@@ -58,6 +59,29 @@ typedef enum {
 	EXIT_CASCADE = 11,
 	EXIT_PORT = 1
 } ExitStatus;
+
+typedef enum {
+	FACE_DETECT = 0,
+	FACE_REPLACE = 1,
+	OUTPUT_IMAGE = 2,
+	ERROR_MESSAGE = 3
+} OperationType;
+
+typedef enum {
+	INVALID_MESSAGE = 0,
+	INVALID_OPERATION = 1,
+	IMAGE_ZERO_BYTES = 2,
+	IMAGE_TOO_LARGE = 3,
+	IMAGE_LOAD_ERROR = 4,
+	IMAGE_NO_FACE = 5
+} ErrorMessageCodes;
+
+typedef struct { // TODO: might not be all there is
+	int socket;
+	OpenCVStruct* parameters;
+	sem_t* lock;
+	
+} ClientStruct;
 
 typedef struct {
 	uint32_t prefix;
@@ -67,13 +91,6 @@ typedef struct {
 	uint32_t replaceImgSize;
 	uint8_t* replaceImgContent;
 } Message;
-
-typedef enum {
-	FACE_DETECT = 0,
-	FACE_REPLACE = 1,
-	OUTPUT_IMAGE = 2,
-	ERROR_MESSAGE = 3
-} OperationType;
 
 typedef struct {
 	int maxClients;
@@ -85,7 +102,7 @@ typedef struct {
 	FILE* outputFile;
 	CvHaarClassifierCascade* faceCascade;
 	CvHaarClassifierCascade* eyeCascade;
-} OpenCVstruct;
+} OpenCVStruct;
 
 typedef struct {
 	uint32_t connections;
@@ -94,15 +111,6 @@ typedef struct {
 	uint32_t replaceRequests;
 	uint32_t malformed;
 } Statistics;
-
-enum ErrorMessageCodes {
-	INVALID_MESSAGE = 0,
-	INVALID_OPERATION = 1,
-	IMAGE_ZERO_BYTES = 2,
-	IMAGE_TOO_LARGE = 3,
-	IMAGE_LOAD_ERROR = 4,
-	IMAGE_NO_FACE = 5
-};
 
 const char* const errorMessages[] = {
 	"invalid message",
@@ -138,10 +146,13 @@ Arguments* argument_check(int argc, char** argv);
 void clean(Arguments* args);
 void tmp_file_check(Arguments* args);
 void write_to_temp_file (uint8_t* fileBuf, long fileSize); // needs a semaphone
-OpenCVstruct* init_cascade_struct(Arguments* args);
+OpenCVStruct* init_cascade_struct(Arguments* args);
 int open_listen_connection(Arguments* args);
-long get_file_size(FILE* file);
+uint32_t get_file_size(FILE* file);
 ssize_t write_from_memory(int socket, const uint8_t* memory, size_t length);
+void send_response_file (int socket);
+void send_error_message(int socket, ErrorMessageCodes errorCode);
+void read_message(int socket);
 
 //---------------------------------------------------------------------------//
 // TODO: redirect all stdout and stderr (EXCEPT LISTENING PORT NUM AND ERROR MSGS) to /dev/null
@@ -149,7 +160,7 @@ ssize_t write_from_memory(int socket, const uint8_t* memory, size_t length);
 int main(int argc, char** argv) {
 	Arguments* args = argument_check(argc, argv);
 	tmp_file_check(args);
-	OpenCVstruct* OpenCVparameters = init_cascade_struct(args);
+	OpenCVStruct* OpenCVparameters = init_cascade_struct(args);
 	int serverFD = open_listen_connection(args);
 	return 0;
 }
@@ -188,7 +199,7 @@ bool is_num(char* inputString) {
 bool valid_max_clients(char* input) { 
 	if (!is_num(input)) return false;
 	int buffer = atoi(input);
-	if (buffer > CONST_MAX_CLIENTS || buffer < 0) {
+	if (buffer > MAX_CLIENTS || buffer < 0) {
 		return false;
 	}
 	return true;
@@ -273,8 +284,8 @@ void tmp_file_check(Arguments* args) {
 	fclose(tmp); // check if can be closed?
 }
 	
-OpenCVstruct* init_cascade_struct(Arguments* args) {
-	OpenCVstruct* param = (OpenCVstruct*)calloc(1, sizeof(OpenCVstruct));
+OpenCVStruct* init_cascade_struct(Arguments* args) {
+	OpenCVStruct* param = (OpenCVStruct*)calloc(1, sizeof(OpenCVStruct));
 	param->outputFile = NULL;
 	param->faceCascade = (CvHaarClassifierCascade*)cvLoad(faceCascadeFileDir, NULL, NULL, NULL);
 	param->eyeCascade = (CvHaarClassifierCascade*)cvLoad(eyeCascadeFileDir, NULL, NULL, NULL);
@@ -344,11 +355,11 @@ int open_listen_connection(Arguments* args) {
 }
 
 // assumes file is already opened
-long get_file_size(FILE* file) { // REF: fseek man page
+uint32_t get_file_size(FILE* file) { // REF: fseek man page
 	fseek(file, 0, SEEK_END);
 	long size = ftell(file);
 	rewind(file);
-	return size;
+	return (uint32_t)size;
 }
 
 ssize_t write_from_memory(int socket, const uint8_t* memory, size_t length) {
@@ -386,7 +397,7 @@ void write_to_temp_file (uint8_t* fileBuf, long fileSize) {
 
  
 // IF FIRST 4 BYTES DONT WORK, SEND responsefile over socket as is, no 
-void send_error_message (int socket) {
+void send_response_file (int socket) {
 	// read and store response file
 	FILE* responseFile = fopen(responseFileDir, "r");
 	long responseFileSize = get_file_size(responseFile);
@@ -399,11 +410,33 @@ void send_error_message (int socket) {
 	free((uint8_t*)responseFileContents);
 }
 
+void send_error_message(int socket, ErrorMessageCodes errorCode) {
+	size_t errorMessageLength = strlen(errorMessages[errorCode]);
+	write(socket, errorMessages[errorCode], errorMessageLength);
+}
+
+bool message_check(int socket, size_t numRead, uint32_t length) {
+	if (length > MAX_SIZE) {
+		send_error_message(socket, IMAGE_TOO_LARGE);
+		return true;
+	}
+	if (numRead < length || numRead < 0) {
+		send_error_message(socket, INVALID_MESSAGE); // unexpected EOF, size was wrong
+		return true;
+	}
+	if (numRead == 0) {
+		send_error_message(socket, IMAGE_ZERO_BYTES);
+		return true;
+	}
+	return false;
+}
+
 /* Reads message from socket
- * stores as message struct
+ * clients can only send 0, or 1 operation types
+ * stores as message struct and returns the struct to be processed later
  * passes to OpenCV
  */
-void read_message(int socket, Arguments* args) {
+Message* read_message(int socket) {
 	Message* serverMessage = init_message();
 
 	// read prefix first
@@ -411,7 +444,7 @@ void read_message(int socket, Arguments* args) {
 	read(socket, prefixBuffer, sizeof(uint32_t));
 	if (*prefixBuffer != msgPrefix) { // incorrect prefix
 		free((uint32_t*)prefixBuffer);
-		send_error_message(socket);
+		send_response_file(socket);
 		return; // unsure
 	}
 	free((uint32_t*)prefixBuffer);
@@ -419,15 +452,35 @@ void read_message(int socket, Arguments* args) {
 	// read operation
 	uint8_t* opBuffer = (uint8_t*)malloc(sizeof(uint8_t));
 	read(socket, opBuffer, sizeof(uint8_t));
-	if (*opBuffer == OUTPUT_IMAGE) {
+	serverMessage->operation = *opBuffer;
+
+	if (*opBuffer == FACE_DETECT) { 		//detect face
+		read(socket, &(message->detectImgSize), sizeof(uint32_t));
+		uint8_t* imageData = (uint8_t*)malloc(message->detectImgSize);
+		size_t numRead = read(socket, imageData, message->detectImgSize);
+		if (mesage_check(socket, numRead, message->detectImgSize)) {
+			free((uint8_t*)opBuffer);
+			free((uint8_t*)imageData);
+			return message; // TODO: figure out what to do here supposed to 
+							//		 clean and close client connection
+		}
+	}
+	else if (*opBuffer == FACE_REPLACE) { //replace face
+		read(socket, &(message->detectImgSize), sizeof(uint32_t));
+		uint8_t* detectImageData = (uint8_t*)malloc(message->detectImgSize);
+	}
+	else { // incorrect protocol
+		send_error_message(socket, INVALID_OPERATION);
 	}
 }
 
-// TODO:
-void cv_detect_faces () {
+// TODO: protect with mutex
+void cv_detect_faces (ClientStruct* clientInfo) {
+
 }
 
-void* client_handler(void* param) {
+void* client_handler(void* c) {
+	ClientStruct* info = (ClientStruct*)c;
 }
 
 /* BEHAVIOUR:

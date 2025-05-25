@@ -32,10 +32,10 @@ const uint32_t badRequest = 0x99999999;
 							/* STRUCTS */
 //---------------------------------------------------------------------------//
 typedef enum {
-	faceDetect = 0,
-	faceReplace = 1,
-	outputImage = 2,
-	errorMessage = 3
+	FACE_DETECT = 0,
+	FACE_REPLACE = 1,
+	OUTPUT_IMAGE = 2,
+	ERROR_MESSAGE = 3
 } OperationType;
  
 typedef enum {
@@ -210,7 +210,7 @@ Arguments* init_arguments(void) { // sets all pointers to NULL
 Message* init_message(void) {
 	Message* message = (Message*)malloc(sizeof(Message));
 	message->prefix = 0;
-	message->operation = 3; // 0 is a valid operation 3 for error
+	message->operation = ERROR_MESSAGE; // 0 is a valid operation 3 for error
 	message->detectImgSize = 0;
 	message->detectImgContent = NULL;
 	message->replaceImgSize = 0;
@@ -353,40 +353,40 @@ long get_file_size(FILE* file) { // REF: fseek man page
 int determine_operation(Arguments* args) { 
 	if (args->imgFilename != NULL) {
 		if (args->replaceFilename != NULL) {
-			return faceReplace; // face replace
+			return FACE_REPLACE; // face replace
 		}
 		else {
-			return faceDetect;  // face detect
+			return FACE_DETECT;  // face detect
 		}
 	}
-	return errorMessage;
+	return ERROR_MESSAGE;
 }
 
 Message* format_message(Arguments* args) {
 	Message* message = init_message();
 
 	message->prefix = htonl(imgPrefix);
-	printf("Prefix: %d\n", message->prefix); // debug
+	//printf("Prefix: %d\n", message->prefix); // debug
 	message->operation = determine_operation(args);
-	printf("Operation: %d\n", message->operation); // debug
+	//printf("Operation: %d\n", message->operation); // debug
 	message->detectImgSize = get_file_size(args->imgFile);
 	if (!message->detectImgSize) { // error in image size
-		message->operation = 3;
+		message->operation = ERROR_MESSAGE;
 	}
 	message->detectImgContent = (uint8_t*)malloc(message->detectImgSize);
 
  	// copy file contents
-	fread(message->detectImgContent, 1, message->detectImgSize, args->imgFile); // might have to read till not EOF
+	fread(message->detectImgContent, sizeof(uint8_t), message->detectImgSize, args->imgFile); // might have to read till not EOF
 
 	if (message->operation == 1) {
 		message->replaceImgSize = get_file_size(args->replaceFile);
 		if (!message->replaceImgSize) { // error in image size
-			message->operation = 3;
+			message->operation = ERROR_MESSAGE;
 		}
 		message->replaceImgContent = (uint8_t*)malloc(message->detectImgSize);
 		
 		// copy file contents
-		fread(message->replaceImgContent, 1, message->detectImgSize, args->replaceFile); 
+		fread(message->replaceImgContent, sizeof(uint8_t), message->detectImgSize, args->replaceFile); 
 	}
 	return message;
 }
@@ -517,10 +517,10 @@ void read_message(int socket, Arguments* args) {
 	// read operation
 	uint8_t* opBuffer = (uint8_t*)malloc(sizeof(uint8_t));
 	read(socket, opBuffer, sizeof(uint8_t));
-	if (*opBuffer == outputImage) {
+	if (*opBuffer == OUTPUT_IMAGE) {
 		write_img_to_file(socket, serverMessage, args);
 	}
-	if (*opBuffer == errorMessage) {
+	if (*opBuffer == ERROR_MESSAGE) {
 		print_error_message(socket);
 	}
 

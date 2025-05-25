@@ -76,13 +76,6 @@ typedef enum {
 	IMAGE_NO_FACE = 5
 } ErrorMessageCodes;
 
-typedef struct { // TODO: might not be all there is
-	int socket;
-	OpenCVStruct* parameters;
-	sem_t* lock;
-	
-} ClientStruct;
-
 typedef struct {
 	uint32_t prefix;
 	uint8_t operation;
@@ -103,6 +96,13 @@ typedef struct {
 	CvHaarClassifierCascade* faceCascade;
 	CvHaarClassifierCascade* eyeCascade;
 } OpenCVStruct;
+
+typedef struct { // TODO: might not be all there is
+	int socket;
+	OpenCVStruct* parameters;
+	sem_t* lock;
+	
+} ClientStruct;
 
 typedef struct {
 	uint32_t connections;
@@ -152,11 +152,13 @@ uint32_t get_file_size(FILE* file);
 ssize_t write_from_memory(int socket, const uint8_t* memory, size_t length);
 void send_response_file (int socket);
 void send_error_message(int socket, ErrorMessageCodes errorCode);
-void read_message(int socket);
+Message* read_message(int socket);
+Message* format_message(OperationType operation, uint32_t length, uint8_t* content);
 
 //---------------------------------------------------------------------------//
 // TODO: redirect all stdout and stderr (EXCEPT LISTENING PORT NUM AND ERROR MSGS) to /dev/null
 // 		 rename enums
+// 		 malloc with sizeof instead of just raw length for portability
 int main(int argc, char** argv) {
 	Arguments* args = argument_check(argc, argv);
 	tmp_file_check(args);
@@ -395,6 +397,34 @@ void write_to_temp_file (uint8_t* fileBuf, long fileSize) {
 	close(tempFile);
 }
 
+/* After this go back to sending error messages 
+ * Server can only send 1 content
+ * */
+Message* format_message(OperationType operation, uint32_t length, uint8_t* content) {
+	Message* message = init_message(); 
+	message->prefix = htonl(msgPrefix);
+	message->operation = operation;
+	message->detectImgSize = length;
+	message->detectImgContent = (uint8_t*)malloc(length * sizeof(uint8_t));
+	memcpy(message->detectImgContent, content, length);
+	return message;	
+}
+
+void write_message(int socket, Message* message) {
+	uint32_t messageSize = sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t)
+							+ sizeof(uint8_t) * message->detectImgSize;
+	size_t offset = 0;
+	uint8_t* messageBuffer = (uint8_t*)malloc(messageSize);
+	memcpy(messageBuffer, &(message->prefix), sizeof(uint32_t));
+	offset += sizeof(uint32_t);
+	memcpy(messageBuffer + offset, &(message->operation), sizeof(uint8_t));
+	offset += sizeof(uint8_t);
+	memcpy(messageBuffer + offset, &(message->detectImgSize), sizeof(uint32_t));
+	offset += sizeof(uint32_t);
+	memcpy(messageBuffer + offset, message->detectImgContent, message->detectImgSize);
+
+	write(socket, messageBuffer, messageSize);
+}
  
 // IF FIRST 4 BYTES DONT WORK, SEND responsefile over socket as is, no 
 void send_response_file (int socket) {
@@ -410,12 +440,16 @@ void send_response_file (int socket) {
 	free((uint8_t*)responseFileContents);
 }
 
+// TODO: format error message to follow protocol:
+// 		 prefix; operation type; err msg size; err msg
 void send_error_message(int socket, ErrorMessageCodes errorCode) {
 	size_t errorMessageLength = strlen(errorMessages[errorCode]);
+	
+
 	write(socket, errorMessages[errorCode], errorMessageLength);
 }
 
-bool message_check(int socket, size_t numRead, uint32_t length) {
+bool message_check(int socket, ssize_t numRead, uint32_t length) {
 	if (length > MAX_SIZE) {
 		send_error_message(socket, IMAGE_TOO_LARGE);
 		return true;
@@ -445,7 +479,7 @@ Message* read_message(int socket) {
 	if (*prefixBuffer != msgPrefix) { // incorrect prefix
 		free((uint32_t*)prefixBuffer);
 		send_response_file(socket);
-		return; // unsure
+		return serverMessage; // unsure
 	}
 	free((uint32_t*)prefixBuffer);
 
@@ -455,23 +489,24 @@ Message* read_message(int socket) {
 	serverMessage->operation = *opBuffer;
 
 	if (*opBuffer == FACE_DETECT) { 		//detect face
-		read(socket, &(message->detectImgSize), sizeof(uint32_t));
-		uint8_t* imageData = (uint8_t*)malloc(message->detectImgSize);
-		size_t numRead = read(socket, imageData, message->detectImgSize);
-		if (mesage_check(socket, numRead, message->detectImgSize)) {
+		read(socket, &(serverMessage->detectImgSize), sizeof(uint32_t));
+		uint8_t* imageData = (uint8_t*)malloc(serverMessage->detectImgSize);
+		size_t numRead = read(socket, imageData, serverMessage->detectImgSize);
+		if (message_check(socket, numRead, serverMessage->detectImgSize)) {
 			free((uint8_t*)opBuffer);
 			free((uint8_t*)imageData);
-			return message; // TODO: figure out what to do here supposed to 
-							//		 clean and close client connection
+			return serverMessage; // TODO: figure out what to do here supposed to 
+								//		 clean and close client connection
 		}
 	}
 	else if (*opBuffer == FACE_REPLACE) { //replace face
-		read(socket, &(message->detectImgSize), sizeof(uint32_t));
-		uint8_t* detectImageData = (uint8_t*)malloc(message->detectImgSize);
+		read(socket, &(serverMessage->detectImgSize), sizeof(uint32_t));
+		uint8_t* detectImageData = (uint8_t*)malloc(sizeof(uint8_t) * serverMessage->detectImgSize);
 	}
 	else { // incorrect protocol
 		send_error_message(socket, INVALID_OPERATION);
 	}
+	return serverMessage;
 }
 
 // TODO: protect with mutex

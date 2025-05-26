@@ -109,8 +109,8 @@ typedef struct {
 
 typedef struct { // TODO: might not be all there is
 	int socket;
-	CascadeStruct* cascade;
-	OpenCVStruct* openCVParameters; 
+	CascadeStruct* cascade; // malloc'd
+	OpenCVStruct* openCVParameters;  // malloc'd
 	sem_t* lock;
 } ClientStruct;
 
@@ -171,6 +171,7 @@ void cv_detect_faces(CascadeStruct* cascadeParam, OpenCVStruct* image);
 void cv_detect_and_replace_faces(CascadeStruct* cascadeParam, OpenCVStruct* image);
 void* client_handler(void* c);
 void server_runtime (int fdServer, Arguments* serverArgs);
+void print_statistics(Statistics stats);
 
 //---------------------------------------------------------------------------//
 // TODO: redirect all stdout and stderr (EXCEPT LISTENING PORT NUM AND ERROR MSGS) to /dev/null
@@ -512,7 +513,7 @@ bool prefix_check(int socket) {
  * writes tempfile to output
  */
 OpenCVStruct* read_message(int socket, CascadeStruct* cascadeParam) {
-	Message* serverMessage = init_message();
+	Message* serverMessage = init_message(); // debugging
 
 	// read prefix first
  	if (!prefix_check(socket)) { 
@@ -704,7 +705,8 @@ void cv_detect_and_replace_faces(CascadeStruct* cascadeParam, OpenCVStruct* imag
 }
 
 void* client_handler(void* c) {
-	ClientStruct* info = (ClientStruct*)c;
+	ClientStruct* clientInfo = (ClientStruct*)c;
+	OpenCVStruct* image = read_message(clientInfo->socket, clientInfo->cascade);
 }
 
 /* BEHAVIOUR:
@@ -735,4 +737,22 @@ void server_runtime (int fdServer, Arguments* serverArgs) {
 	}
 }
 
-
+void print_statistics(Statistics stats) {
+	int i = 0;
+	fprintf(stderr, "%s", statisticsList[i]);
+	i++;
+	fprintf(stderr, "%d\n", stats.connections);
+	fprintf(stderr, "%s", statisticsList[i]);
+	i++;
+	fprintf(stderr, "%d\n", stats.completed);
+	fprintf(stderr, "%s", statisticsList[i]);
+	i++;
+	fprintf(stderr, "%d\n", stats.detectionRequests);
+	fprintf(stderr, "%s", statisticsList[i]);
+	i++;
+	fprintf(stderr, "%d\n", stats.replaceRequests);
+	fprintf(stderr, "%s", statisticsList[i]);
+	i++;
+	fprintf(stderr, "%d\n", stats.malformed);
+	fflush(stderr);
+}

@@ -29,8 +29,9 @@ const char* const tempFileDir = "/tmp/imagefile.jpg";
 const char* const faceCascadeFileDir = "/local/courses/csse2310/resources/a4/haarcascade_frontalface_alt2.xml";
 const char* const eyeCascadeFileDir = "/local/courses/csse2310/resources/a4/haarcascade_eye_tree_eyeglasses.xml";
 const char* const responseFileDir = "/local/courses/csse2310/resources/a4/responsefile";
+const char* const devNull = "/dev/null"; //TODO remove this if unused
 
-const int MAX_CLIENTS = 10000; // might be uint32_t
+const uint32_t MAX_CLIENTS = 10000; // might be uint32_t
 const int NUM_STATISTICS = 5; 
 const uint32_t MSG_PREFIX = 0x23107231;
 const uint32_t MAX_SIZE = (1UL << 32) - 1; 
@@ -161,8 +162,9 @@ int open_listen_connection(Arguments* args);
 uint32_t get_file_size(FILE* file);
 ssize_t write_from_memory(int socket, const uint8_t* memory, size_t length);
 void send_response_file (int socket);
+bool message_check(int socket, ssize_t numRead, uint32_t length);
 void send_error_message(int socket, ErrorMessageCodes errorCode);
-OpenCVStruct* read_message(int socket, CascadeStruct* cascadeParam);
+OpenCVStruct* read_and_load_param(int socket, CascadeStruct* cascadeParam);
 Message* format_message(OperationType operation, uint32_t length, uint8_t* content);
 OpenCVStruct* init_OpenCV_struct();
 OpenCVStruct* load_detect_image(CascadeStruct* cascadeParam);
@@ -172,8 +174,9 @@ void cv_detect_and_replace_faces(CascadeStruct* cascadeParam, OpenCVStruct* imag
 uint8_t read_operation(int socket);
 bool read_to_temp_file(int socket);
 void* client_handler(void* c);
-void server_runtime (int fdServer, Arguments* serverArgs);
 void print_statistics(Statistics stats);
+ClientStruct* init_client_parameters(int fd, CascadeStruct* cascade, sem_t* lock);
+void server_runtime (int fdServer, Arguments* serverArgs, CascadeStruct* cascadeParam, sem_t* sem);
 
 //---------------------------------------------------------------------------//
 // TODO: redirect all stdout and stderr (EXCEPT LISTENING PORT NUM AND ERROR MSGS) to /dev/null
@@ -189,6 +192,11 @@ int main(int argc, char** argv) {
 	int serverFD = open_listen_connection(args);
 	sem_t lock;
 	sem_init(&lock, 0, 1);
+	server_runtime(serverFD, args, cascadeParameters, &lock);
+
+	free((Arguments*)args);		
+	sem_destroy(&lock);
+
 	return 0;
 }
 
@@ -225,7 +233,7 @@ bool is_num(char* inputString) {
 
 bool valid_max_clients(char* input) { 
 	if (!is_num(input)) return false;
-	int buffer = atoi(input);
+	long buffer = strtol(input, NULL, 32); // magic number
 	if (buffer > MAX_CLIENTS || buffer < 0) {
 		return false;
 	}
@@ -255,7 +263,7 @@ void has_empty_string(int argc, char** argv) {
 Message* init_message(void) {
 	Message* message = (Message*)malloc(sizeof(Message));
 	message->prefix = MSG_PREFIX;
-	message->operation = 3; // 0 is a valid operation 3 for error
+	message->operation = ERROR_MESSAGE; // 0 is a valid operation 3 for error
 	message->detectImgSize = 0;
 	message->detectImgContent = NULL;
 	message->replaceImgSize = 0;
@@ -513,8 +521,7 @@ bool prefix_check(int socket) {
  * loads replace image into OpenCV
  * returns struct with OpenCV parameters 
  */
-OpenCVStruct* read_message(int socket, CascadeStruct* cascadeParam) {
-	Message* serverMessage = init_message(); // debugging
+OpenCVStruct* read_and_load_param(int socket, CascadeStruct* cascadeParam) {
 
 	// read prefix first
  	if (!prefix_check(socket)) { 
@@ -557,7 +564,7 @@ bool read_to_temp_file(int socket) {
 	uint32_t* imageSize = (uint32_t*)malloc(sizeof(uint32_t));
 	read(socket, imageSize, sizeof(uint32_t));
 	uint8_t* imageData = (uint8_t*)malloc(sizeof(uint8_t) * *imageSize);
-	size_t numRead = read(socket, imageData, *imageSize);
+	ssize_t numRead = read(socket, imageData, *imageSize);
 	if (!message_check(socket, numRead, *imageSize)) {
 		free((uint32_t*)imageSize);
 		free((uint8_t*)imageData);
@@ -578,6 +585,15 @@ OpenCVStruct* init_OpenCV_struct() {
 	temp->faces = NULL;
 	temp->error = false;
 	return temp;
+}
+
+ClientStruct* init_client_parameters(int fd, CascadeStruct* cascade, sem_t* lock) {
+	ClientStruct* info = (ClientStruct*)malloc(sizeof(ClientStruct));
+	info->socket = fd;
+	info->cascade = cascade;
+	info->openCVParameters = NULL;
+	info->lock = lock;
+	return info;
 }
 
 OpenCVStruct* load_detect_image(CascadeStruct* cascadeParam) {
@@ -730,12 +746,38 @@ bool read_check_and_store_image(int socket) {
 	return true;
 }
 
+void write_from_temp_file(int socket) {
+	FILE* tempFile = fopen(tempFileDir, "r");
+	long imageSize = get_file_size(tempFile);
+	uint8_t* imageData = (uint8_t*)malloc(imageSize);
+	fread(imageData, sizeof(uint8_t), imageSize, tempFile);
+	fclose(tempFile);
+	write_from_memory(socket, imageData, imageSize);
+}
+
+// TODO: find what the client should return on join
 void* client_handler(void* c) {
 	ClientStruct* clientInfo = (ClientStruct*)c;
 
 	// take lock
-	
-	OpenCVStruct* image = read_message(clientInfo->socket, clientInfo->cascade);
+	sem_wait(clientInfo->lock);
+
+	OpenCVStruct* image = read_and_load_param(clientInfo->socket, clientInfo->cascade);
+	if (image->error) {
+		// close connection
+		// TODO: free
+		return NULL;
+	}
+	if (image->replace) {
+		cv_detect_and_replace_faces(clientInfo->cascade, image);
+	}
+	else {
+		cv_detect_faces(clientInfo->cascade, image);
+	}
+	write_from_temp_file(clientInfo->socket); // causes 6.1 to fail
+	sem_post(clientInfo->lock);
+	// TODO: free malloc'd stuff
+	return NULL;
 }
 
 /* BEHAVIOUR:
@@ -747,8 +789,9 @@ void* client_handler(void* c) {
  *
  * on SIGHUP print statistics to stderr
  * TODO: increment statistics and protect with semaphone
+ * 		 might have to redir to /dev/null
  */
-void server_runtime (int fdServer, Arguments* serverArgs) {
+void server_runtime (int fdServer, Arguments* serverArgs, CascadeStruct* cascadeParam, sem_t* sem) {
 	int connections = 0;
 	int fd;
 	struct sockaddr_in fromAddr;
@@ -756,15 +799,21 @@ void server_runtime (int fdServer, Arguments* serverArgs) {
 	int conditional = serverArgs->maxClients;
 
 	while(conditional ? 1 : (connections < conditional)) {
+		
         fromAddrSize = sizeof(struct sockaddr_in);
         // Block, waiting for a new connection. (fromAddr will be populated
         // with address of client)
+
+		// accept connection
         fd = accept(fdServer, (struct sockaddr*)&fromAddr, &fromAddrSize);
 		connections++;
-		// accepted connection
-		int* fdData = (int*)malloc(sizeof(int));
-		*fdData = fd;
+	
+		ClientStruct* clientParam = init_client_parameters(fd, cascadeParam, sem);
+
+		// threading
 		pthread_t threadID;
+		pthread_create(&threadID, NULL, client_handler, clientParam);
+		pthread_detach(threadID);
 	}
 }
 

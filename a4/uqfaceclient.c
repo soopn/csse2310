@@ -413,6 +413,7 @@ ssize_t send_with_header(int socketFD, uint8_t* buffer, size_t length) { // TODO
 	return total;
 }
 
+// TODO: cast from void*
 void populate_message_buffer(Message* message, uint8_t* buffer) {
 	size_t offset = 0;
 	memcpy(buffer + offset, &(message->prefix), sizeof(uint32_t));
@@ -539,7 +540,7 @@ void read_message(int socket, Arguments* args) {
 	if (*opBuffer == ERROR_MESSAGE) {
 		print_error_message(socket);
 	}
-
+	free((uint8_t*)opBuffer);
 }
 
 /* ORDER OF BYTESTREAM
@@ -551,11 +552,13 @@ void read_message(int socket, Arguments* args) {
  * N byte: img2				(???)
  *
  * SPEC:
+ * TODO: get byte stream from stdin
+ *
  * send send image with header
  * await response
  * write to output file or stdout
  */
-void client_runtime(Arguments* args, int socketFD) { // might have to do a while loop
+void lient_runtime(Arguments* args, int socketFD) { // might have to do a while loop
 	if (!input_file_or_stdin(args)) { // read from stdin
 		char* filename = get_filename_stdin();
 		args->imgFile = fopen(removeNewline(filename), "r");

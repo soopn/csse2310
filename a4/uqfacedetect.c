@@ -514,7 +514,7 @@ void send_error_message(int socket, ErrorMessageCodes errorCode) {
 	free((uint8_t*)buffer);
 }
 
-bool message_check(int socket, ssize_t numRead, uint32_t length) {
+bool message_check(int socket, ssize_t numRead, uint32_t length) { //TODO might be redundant
 	if (length > MAX_SIZE) {
 		send_error_message(socket, IMAGE_TOO_LARGE);
 		return true;
@@ -570,14 +570,27 @@ OpenCVStruct* read_and_load_param(int socket, uint8_t op, CascadeStruct* cascade
 
 bool read_to_temp_file(int socket) {
 	uint32_t* imageSize = (uint32_t*)malloc(sizeof(uint32_t));
-	read(socket, imageSize, sizeof(uint32_t));
+	int status = read_to_memory(socket, imageSize, sizeof(uint32_t));
+	if (status > 0) {
+		free((uint32_t*)imageSize);
+		return false;
+	}
 	uint8_t* imageData = (uint8_t*)malloc(sizeof(uint8_t) * *imageSize);
+	status = read_to_memory(socket, imageData, *imageSize);
+	if (status > 0) {
+		free((uint32_t*)imageSize);
+		free((uint8_t*)imageData);
+		return false;
+	}
+
+	/*
 	ssize_t numRead = read(socket, imageData, *imageSize);
 	if (!message_check(socket, numRead, *imageSize)) {
 		free((uint32_t*)imageSize);
 		free((uint8_t*)imageData);
 		return false; 	
 	}
+	*/
 	load_temp_file(imageData, *imageSize);
 	free((uint32_t*)imageSize);
 	free((uint8_t*)imageData);
@@ -729,7 +742,9 @@ void cv_detect_and_replace_faces(CascadeStruct* cascadeParam, OpenCVStruct* imag
 
 uint8_t read_operation(int socket) {
 	uint8_t* opBuffer = (uint8_t*)malloc(sizeof(uint8_t));
-	read(socket, opBuffer, sizeof(uint8_t));
+	if (read(socket, opBuffer, sizeof(uint8_t)) < 0) {
+		return 2;
+	}
 	uint8_t operation = *opBuffer;
 	free((uint8_t*)opBuffer);
 	return operation;
@@ -830,7 +845,6 @@ void* client_handler(void* c) {
 	}
 
 	OpenCVStruct* image = read_and_load_param(clientInfo->socket, operation, clientInfo->cascade);
-
 	if (image->error) { 
 		//TODO freeing
 		return NULL;

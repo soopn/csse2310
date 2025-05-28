@@ -28,7 +28,8 @@ const char* const replaceFileArg = "--replacefilename";
 const char* const outputFileArg = "--outputfilename";
 const char* const outputFileVariation = ">";
 const char* const detectImgArg = "--detectimage";
-const char* const detectImgVariation = "<"; // TODO THESE ARE REDIR NOT VARIATIONS
+const char* const detectImgVariation
+        = "<"; // TODO THESE ARE REDIR NOT VARIATIONS
 
 const char* const emptyString = "";
 const uint32_t imgPrefix = 0x23107231;
@@ -72,8 +73,8 @@ typedef struct {
 } Message;
 
 typedef struct {
-	uint32_t size;
-	uint8_t* data;
+    uint32_t size;
+    uint8_t* data;
 } Image;
 
 //---------------------------------------------------------------------------//
@@ -102,7 +103,7 @@ void read_message(int socket, Arguments* args);
 bool write_img_to_file(int socket, Arguments* args);
 char* byte_to_string(uint8_t* input, uint32_t length);
 void print_error_message(int socket);
-ssize_t send_with_header(int socketFD, uint8_t* buffer, size_t length);
+ssize_t send_with_header(int socketFD, const uint8_t* buffer, size_t length);
 void client_runtime(Arguments* args, int socketFD);
 void free_args(Arguments* args);
 void free_message(Message* msg);
@@ -111,11 +112,6 @@ void free_message(Message* msg);
  * USAGE: ./uqfaceclient portnum [--replacefilename filename] [--outputfilename
  * filename] [--detectimage filename] portnum must always be the first argument
  * cannot be empty
- * TODO:
- * unexpected argument checking (might not be necessary?)
- * replace everything with open() with O_CREAT | O_TRUNC, S_IRWXU
- * check what to do when file from stdin can't be opened (still gives an error
- * message from server)
  */
 
 int main(int argc, char** argv)
@@ -129,27 +125,29 @@ int main(int argc, char** argv)
 /* OTHER FUNCTIONS*/
 //-----------------------------------------------------------------------------//
 
-void free_args(Arguments* args) {
-	if (args->imgFilename != NULL) {
-		fclose(args->imgFile);
-		free((char*)args->imgFilename);
-	}
-	if (args->replaceFilename != NULL) {
-		fclose(args->replaceFile);
-		free((char*)args->replaceFilename);
-	}
-	if (args->outputFilename != NULL) {
-		free((char*)args->outputFilename);
-	}
-	free((Arguments*)args);
+void free_args(Arguments* args)
+{
+    if (args->imgFilename != NULL) {
+        fclose(args->imgFile);
+        free((char*)args->imgFilename);
+    }
+    if (args->replaceFilename != NULL) {
+        fclose(args->replaceFile);
+        free((char*)args->replaceFilename);
+    }
+    if (args->outputFilename != NULL) {
+        free((char*)args->outputFilename);
+    }
+    free((Arguments*)args);
 }
 
-void free_message(Message* msg) {
-	free((uint8_t*)msg->detectImgContent);
-	if (msg->replaceImgContent) {
-		free((uint8_t*)msg->replaceImgContent);
-	}
-	free((Message*)msg);
+void free_message(Message* msg)
+{
+    free((uint8_t*)msg->detectImgContent);
+    if (msg->replaceImgContent) {
+        free((uint8_t*)msg->replaceImgContent);
+    }
+    free((Message*)msg);
 }
 
 void usage_error(void)
@@ -170,7 +168,6 @@ void empty_output_file(char* filename)
     exit(EXIT_FILE_WRITE);
 }
 
-// TODO: include a free function for everything till this point
 void communication_error(void)
 {
     fprintf(stderr, communicationErr);
@@ -305,7 +302,7 @@ Arguments* parse_command_line(int argc, char** argv)
                 continue;
             }
         } else {
-			free_args(args);
+            free_args(args);
             usage_error();
         }
     }
@@ -318,13 +315,10 @@ bool input_file_or_stdin(Arguments* args)
 {
     if (args->imgFilename) {
         return true;
-	}
+    }
     return false;
 }
 
-// TODO: change to open()
-// 		 write file with "rw" access
-// 		 add closing of other opened files if they passed
 Arguments* file_checking(Arguments* args)
 {
     if (args->imgFilename != NULL) {
@@ -349,7 +343,6 @@ Arguments* file_checking(Arguments* args)
     return args;
 }
 
-// TODO: remove debug msg
 int connect_socket(char* port, Arguments* args)
 {
     struct addrinfo* ai = 0;
@@ -357,17 +350,17 @@ int connect_socket(char* port, Arguments* args)
     memset(&hints, 0, sizeof(struct addrinfo));
     hints.ai_family = AF_INET; // IPv4
     hints.ai_socktype = SOCK_STREAM; // TCP
-	int err;
-    if ((err=getaddrinfo(NULL, port, &hints, &ai))) {
+    int err;
+    if ((err = getaddrinfo(NULL, port, &hints, &ai))) {
         freeaddrinfo(ai);
         fprintf(stderr, "%s\n", gai_strerror(err));
-        return 1;   // could not work out the address
+        return 1; // could not work out the address
     }
     int fd = socket(AF_INET, SOCK_STREAM, 0); // default protocol
     if (connect(fd, ai->ai_addr, sizeof(struct sockaddr)) == -1) {
         fprintf(stderr, portErrMsg, port);
         freeaddrinfo(ai);
-		free_args(args);
+        free_args(args);
         exit(EXIT_PORT);
     }
     // connected
@@ -378,7 +371,7 @@ long get_file_size(FILE* file)
 { // REF: fseek man page
     fseek(file, 0, SEEK_END);
     long size = ftell(file);
-    rewind(file);
+    fseek(file, 0, 0);
     return size;
 }
 
@@ -392,9 +385,8 @@ int determine_operation(Arguments* args)
     if (args->imgFilename != NULL) {
         if (args->replaceFilename != NULL) {
             return FACE_REPLACE; // face replace
-        } else {
-            return FACE_DETECT; // face detect
         }
+        return FACE_DETECT; // face detect
     }
     return ERROR_MESSAGE;
 }
@@ -420,7 +412,7 @@ Message* format_message(Arguments* args)
     if (message->operation == FACE_REPLACE) {
         message->replaceImgSize = get_file_size(args->replaceFile);
         if (!message->replaceImgSize) { // error in image size
-            message->operation = ERROR_MESSAGE; // TODO just send file as is with 0 bytes
+            message->operation = ERROR_MESSAGE;
         }
         message->replaceImgContent = (uint8_t*)malloc(message->detectImgSize);
 
@@ -431,8 +423,8 @@ Message* format_message(Arguments* args)
     return message;
 }
 
-ssize_t send_with_header(int socketFD, uint8_t* buffer, size_t length)
-{ // TODO: remove the const and make the buffer const instead
+ssize_t send_with_header(int socketFD, const uint8_t* buffer, size_t length)
+{
     size_t total = 0;
     const uint8_t* pointer = buffer;
 
@@ -451,7 +443,6 @@ ssize_t send_with_header(int socketFD, uint8_t* buffer, size_t length)
     return total;
 }
 
-// TODO: cast from void*
 void populate_message_buffer(Message* message, uint8_t* buffer)
 {
     size_t offset = 0;
@@ -464,9 +455,10 @@ void populate_message_buffer(Message* message, uint8_t* buffer)
     memcpy(buffer + offset, message->detectImgContent, message->detectImgSize);
     offset += message->detectImgSize;
     if (message->replaceImgContent) {
-		memcpy(buffer + offset, &(message->replaceImgSize), sizeof(uint32_t));
-		offset += sizeof(uint32_t);
-        memcpy(buffer + offset, message->replaceImgContent, message->replaceImgSize);
+        memcpy(buffer + offset, &(message->replaceImgSize), sizeof(uint32_t));
+        offset += sizeof(uint32_t);
+        memcpy(buffer + offset, message->replaceImgContent,
+                message->replaceImgSize);
     }
 }
 
@@ -485,47 +477,44 @@ void write_message(Message* message, int socketFD)
     }
     populate_message_buffer(message, buffer);
     send_with_header(socketFD, buffer, messageSize);
-	free((uint8_t*)buffer);
-	//free_message(message);
+    free((uint8_t*)buffer);
+    // free_message(message);
 }
 
-// TODO: maybe check for valid size
-// 		 free before exit
-// 		 have a more reliable way of finding communication error without casting things to unsigned
 bool write_img_to_file(int socket, Arguments* args)
 {
     // get file size
     FILE* stream = args->outputFile;
     uint32_t* size = (uint32_t*)malloc(sizeof(uint32_t));
-    if (read(socket, size, sizeof(uint32_t)) < sizeof(uint32_t)) {
-		free((uint32_t*)size);
-		return false;
-	}
+    if (read(socket, size, sizeof(uint32_t)) < (ssize_t)sizeof(uint32_t)) {
+        free((uint32_t*)size);
+        return false;
+    }
 
-	// store data in buffer
+    // store data in buffer
     uint8_t* imageData = (uint8_t*)malloc(*size);
     if (read(socket, imageData, *size) < *size) {
-		free((uint8_t*)imageData);
-		free((uint32_t*)size);
-		return false;
-	}
+        free((uint8_t*)imageData);
+        free((uint32_t*)size);
+        return false;
+    }
 
     // write to output stream
-	fwrite(imageData, sizeof(uint8_t), (size_t)*size, stream);
-	fflush(stream);
+    fwrite(imageData, sizeof(uint8_t), (size_t)*size, stream);
+    fflush(stream);
 
-	if (args->outputFilename) {
-		fclose(args->outputFile);
-	}
+    if (args->outputFilename) {
+        fclose(args->outputFile);
+    }
     free((uint32_t*)size);
-	free((uint8_t*)imageData);
-	return true;
+    free((uint8_t*)imageData);
+    return true;
 }
 
 char* byte_to_string(uint8_t* input, uint32_t length)
 {
     char* string = (char*)malloc(length + 1);
-	memcpy(string, input, length);
+    memcpy(string, input, length);
     string[length] = '\0';
     return string;
 }
@@ -542,11 +531,11 @@ void print_error_message(int socket)
 
     // print to stderr
     char* errMsg = byte_to_string(inputStream, *size);
-    fprintf(stderr, runtimeErrMsg, inputStream); 
+    fprintf(stderr, runtimeErrMsg, inputStream);
     free((char*)errMsg);
     free((uint32_t*)size);
     free((uint8_t*)inputStream);
-	exit(EXIT_RUNTIME);
+    exit(EXIT_RUNTIME);
 }
 
 /* read from socket
@@ -555,66 +544,65 @@ void print_error_message(int socket)
  * 				  ==> operation == 3; prefix correct; err size,
  * err content WRONG FORMAT ==> prefix wrong then print stderr communicationErr;
  * exit 1
- * TODO: free memory
  */
 void read_message(int socket, Arguments* args)
 {
     // read prefix first
     uint32_t* prefixBuffer = (uint32_t*)malloc(sizeof(uint32_t));
-    if ((read(socket, prefixBuffer, sizeof(uint32_t))) < sizeof(uint32_t))
-	{
-		free_args(args);
-		communication_error();
-	}
+    if ((read(socket, prefixBuffer, sizeof(uint32_t)))
+            < (ssize_t)sizeof(uint32_t)) {
+        free_args(args);
+        communication_error();
+    }
     if (*prefixBuffer != imgPrefix) {
         free((uint32_t*)prefixBuffer);
-		free_args(args);
+        free_args(args);
         communication_error();
     }
     free((uint32_t*)prefixBuffer);
 
     // read operation
     uint8_t* opBuffer = (uint8_t*)malloc(sizeof(uint8_t));
-    if (read(socket, opBuffer, sizeof(uint8_t)) < sizeof(uint8_t)) {
-		free((uint8_t*)opBuffer);
-		free_args(args);
-		communication_error();
-	}
-			
-    if (*opBuffer == OUTPUT_IMAGE) {
-		free((uint8_t*)opBuffer);
-        if (!write_img_to_file(socket, args)) {
-			free_args(args);
-			communication_error();
-		}
+    if (read(socket, opBuffer, sizeof(uint8_t)) < (ssize_t)sizeof(uint8_t)) {
+        free((uint8_t*)opBuffer);
+        free_args(args);
+        communication_error();
     }
-	else if (*opBuffer == ERROR_MESSAGE) {
-		free((uint8_t*)opBuffer);
-		free_args(args);
+
+    if (*opBuffer == OUTPUT_IMAGE) {
+        free((uint8_t*)opBuffer);
+        if (!write_img_to_file(socket, args)) {
+            free_args(args);
+            communication_error();
+        }
+    } else if (*opBuffer == ERROR_MESSAGE) {
+        free((uint8_t*)opBuffer);
+        free_args(args);
         print_error_message(socket);
     }
 }
 
-Image read_from_stdin(void) {
-	int offset = 0;
-	Image img;
-	img.size = 0;
-	img.data = (uint8_t*)malloc(sizeof(uint8_t));
-	uint8_t* buffer = (uint8_t*)malloc(sizeof(uint8_t));
+Image read_from_stdin(void)
+{
+    int offset = 0;
+    Image img;
+    img.size = 0;
+    img.data = (uint8_t*)malloc(sizeof(uint8_t));
+    uint8_t* buffer = (uint8_t*)malloc(sizeof(uint8_t));
 
-	while ((read(STDIN_FILENO, buffer, sizeof(uint8_t)) > 0)) {
-		img.size++;
-		img.data = (uint8_t*)realloc(img.data, img.size * sizeof(uint8_t));
-		memcpy(img.data + offset, buffer, sizeof(uint8_t));
-		offset += sizeof(uint8_t);
-	}
-	if (img.size == 0) { // stdin is 0 bytes or EOF
-		free((uint8_t*)img.data);
-		img.data = NULL;
-		return img;
-	}
-	free((uint8_t*)buffer);
-	return img;
+    while ((read(STDIN_FILENO, buffer, sizeof(uint8_t)) > 0)) {
+        img.size++;
+        img.data = (uint8_t*)realloc(img.data, img.size * sizeof(uint8_t));
+        memcpy(img.data + offset, buffer, sizeof(uint8_t));
+        offset += sizeof(uint8_t);
+    }
+    if (img.size == 0) { // stdin is 0 bytes or EOF
+        free((uint8_t*)img.data);
+        img.data = NULL;
+        return img;
+    }
+    free((uint8_t*)buffer);
+    return img;
 }
 
 /* ORDER OF BYTESTREAM
@@ -630,28 +618,29 @@ Image read_from_stdin(void) {
  * write to output file or stdout
  */
 void client_runtime(Arguments* args, int socketFD)
-{ 
-	if (!input_file_or_stdin(args)) { // read from stdin
-		Image detectImage = read_from_stdin();
-		Message* message = init_message();
-		message->prefix = imgPrefix; 
-		message->operation = FACE_DETECT;
-		message->detectImgSize = detectImage.size; //free
-		message->detectImgContent = detectImage.data; //free
-		if (args->replaceFile) { // formats message
-			message->operation = FACE_REPLACE;
-			message->replaceImgSize = get_file_size(args->replaceFile);
-			message->replaceImgContent = (uint8_t*)malloc(message->replaceImgSize);
-			fread(message->replaceImgContent, sizeof(uint8_t), message->replaceImgSize, args->replaceFile);
-		}
-		write_message(message, socketFD); // TODO free after this
-		if (detectImage.data) {
-			free((uint8_t*)detectImage.data);
-		}
-	}
-	else { // read from file
-		Message* message = format_message(args);
-		write_message(message, socketFD);
-	}
-	read_message(socketFD, args);
+{
+    if (!input_file_or_stdin(args)) { // read from stdin
+        Image detectImage = read_from_stdin();
+        Message* message = init_message();
+        message->prefix = imgPrefix;
+        message->operation = FACE_DETECT;
+        message->detectImgSize = detectImage.size; // free
+        message->detectImgContent = detectImage.data; // free
+        if (args->replaceFile) { // formats message
+            message->operation = FACE_REPLACE;
+            message->replaceImgSize = get_file_size(args->replaceFile);
+            message->replaceImgContent
+                    = (uint8_t*)malloc(message->replaceImgSize);
+            fread(message->replaceImgContent, sizeof(uint8_t),
+                    message->replaceImgSize, args->replaceFile);
+        }
+        write_message(message, socketFD); // TODO free after this
+        if (detectImage.data) {
+            free((uint8_t*)detectImage.data);
+        }
+    } else { // read from file
+        Message* message = format_message(args);
+        write_message(message, socketFD);
+    }
+    read_message(socketFD, args);
 }

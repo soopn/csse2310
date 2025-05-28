@@ -184,7 +184,7 @@ void DEBUG_PRINT_MESSAGE(Message* message);
 // TODO: redirect all stdout and stderr (EXCEPT LISTENING PORT NUM AND ERROR MSGS) to /dev/null
 // 		 rename enums
 // 		 malloc with sizeof instead of just raw length for portability
-// 		 ensure little endianess
+// 		 ENSURE ENDIANESS
 // 		 protect important things with semaphone:
 // 		 		* tempfile
 // 		 		* statistics struct

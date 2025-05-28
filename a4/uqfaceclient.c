@@ -6,6 +6,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <endian.h>
 
 /* CONSTANTS */
 //---------------------------------------------------------------------------//
@@ -27,7 +28,7 @@ const char* const replaceFileArg = "--replacefilename";
 const char* const outputFileArg = "--outputfilename";
 const char* const outputFileVariation = ">";
 const char* const detectImgArg = "--detectimage";
-const char* const detectImgVariation = "<";
+const char* const detectImgVariation = "<"; // TODO THESE ARE REDIR NOT VARIATIONS
 
 const char* const emptyString = "";
 const uint32_t imgPrefix = 0x23107231;
@@ -99,7 +100,7 @@ Message* init_message(void);
 long get_file_size(FILE* file);
 int determine_operation(Arguments* args);
 Message* format_message(Arguments* args);
-ssize_t send_all(int socketFD, uint8_t* buffer, size_t len);
+ssize_t send_all(int socketFD, uint8_t* buffer, size_t len); // TODO remove this
 void populate_message_buffer(Message* message, uint8_t* buffer);
 int write_message(Message* message, int socketFD);
 void read_message(int socket, Arguments* args);
@@ -351,7 +352,6 @@ int connect_socket(char* port, Arguments* args)
     }
     // connected
 
-    dprintf(fd, "CONNECTED!\n");
     return fd;
 }
 
@@ -397,7 +397,7 @@ Message* format_message(Arguments* args)
 {
     Message* message = init_message();
 
-    message->prefix = ntohl(imgPrefix);
+    message->prefix = imgPrefix;
     // printf("Prefix: %d\n", message->prefix); // debug
     message->operation = determine_operation(args);
     // printf("Operation: %d\n", message->operation); // debug
@@ -455,10 +455,12 @@ void populate_message_buffer(Message* message, uint8_t* buffer)
     offset += sizeof(uint8_t);
     memcpy(buffer + offset, &(message->detectImgSize), sizeof(uint32_t));
     offset += sizeof(uint32_t);
-    memcpy(buffer + offset, message->detectImgContent, sizeof(uint8_t));
+    memcpy(buffer + offset, message->detectImgContent, message->detectImgSize);
     offset += message->detectImgSize;
     if (message->replaceImgContent) {
-        memcpy(buffer + offset, message->detectImgContent, sizeof(uint8_t));
+		memcpy(buffer + offset, &(message->replaceImgSize), sizeof(uint32_t));
+		offset += sizeof(uint32_t);
+        memcpy(buffer + offset, message->replaceImgContent, message->replaceImgSize);
     }
     free((uint8_t*)message->detectImgContent);
     free((uint8_t*)message->replaceImgContent);
@@ -594,18 +596,25 @@ void read_message(int socket, Arguments* args)
 }
 
 Image read_from_stdin(void) {
+	bool start = true;
+	int offset = 0;
 	Image img;
 	img.size = 0;
 	img.data = (uint8_t*)malloc(sizeof(uint8_t));
-	while ((read(STDIN_FILENO, img.data, sizeof(uint8_t)) != EOF)) {
-		img.data = (uint8_t*)realloc(img.data, img.size * sizeof(uint8_t));
+	uint8_t* buffer = (uint8_t*)malloc(sizeof(uint8_t));
+
+	while ((read(STDIN_FILENO, buffer, sizeof(uint8_t)) > 0)) {
 		img.size++;
+		img.data = (uint8_t*)realloc(img.data, img.size * sizeof(uint8_t));
+		memcpy(img.data + offset, buffer, sizeof(uint8_t));
+		offset += sizeof(uint8_t);
 	}
 	if (img.size == 0) { // stdin is 0 bytes or EOF
 		free((uint8_t*)img.data);
 		img.data = NULL;
 		return img;
 	}
+	free((uint8_t*)buffer);
 	return img;
 }
 
@@ -629,21 +638,22 @@ void client_runtime(Arguments* args, int socketFD)
 	if (!input_file_or_stdin(args)) { // read from stdin
 		Image detectImage = read_from_stdin();
 		Message* message = init_message();
-		message->prefix = htonl(imgPrefix); //TODO: confirm endianness
+		message->prefix = imgPrefix; 
+		message->operation = FACE_DETECT;
+		message->detectImgSize = detectImage.size; //free
+		message->detectImgContent = detectImage.data; //free
 		if (args->replaceFile) { // formats message
 			message->operation = FACE_REPLACE;
-			message->detectImgSize = detectImage.size; //free
-			message->detectImgContent = detectImage.data; //free
 			message->replaceImgSize = get_file_size(args->replaceFile);
 			message->replaceImgContent = (uint8_t*)malloc(message->replaceImgSize);
 			fread(message->replaceImgContent, sizeof(uint8_t), message->replaceImgSize, args->replaceFile);
-			//DEBUG_PRINT_MESSAGE(message);
-			int result = write_message(message, socketFD);
 		}
-	}
-	else {
-		Message* message = format_message(args);
 		//DEBUG_PRINT_MESSAGE(message);
+		int result = write_message(message, socketFD); // TODO free after this
+	}
+	else { // read from file
+		Message* message = format_message(args);
+		DEBUG_PRINT_MESSAGE(message);
 		int result = write_message(message, socketFD);
 	}
 	read_message(socketFD, args);

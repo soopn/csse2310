@@ -6,6 +6,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <fcntl.h>
+#include <endian.h>
 #include <semaphore.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -182,6 +183,7 @@ void server_runtime (int fdServer, Arguments* serverArgs, CascadeStruct* cascade
 // TODO: redirect all stdout and stderr (EXCEPT LISTENING PORT NUM AND ERROR MSGS) to /dev/null
 // 		 rename enums
 // 		 malloc with sizeof instead of just raw length for portability
+// 		 ensure little endianess
 // 		 protect important things with semaphone:
 // 		 		* tempfile
 // 		 		* statistics struct
@@ -432,7 +434,7 @@ void load_temp_file(uint8_t* fileBuf, uint32_t fileSize) {
  * */
 Message* format_message(OperationType operation, uint32_t length, uint8_t* content) {
 	Message* message = init_message(); 
-	message->prefix = htonl(MSG_PREFIX);
+	message->prefix = MSG_PREFIX;
 	message->operation = operation;
 	message->detectImgSize = length;
 	message->detectImgContent = (uint8_t*)malloc(length * sizeof(uint8_t));
@@ -499,6 +501,7 @@ bool message_check(int socket, ssize_t numRead, uint32_t length) {
 bool prefix_check(int socket) {
 	uint32_t* prefixBuffer = (uint32_t*)malloc(sizeof(uint32_t));
 	read(socket, prefixBuffer, sizeof(uint32_t));
+	printf("PREFIX = %X\n", *prefixBuffer); 
 	if (*prefixBuffer != MSG_PREFIX) { // incorrect prefix
 		free((uint32_t*)prefixBuffer);
 		return false;

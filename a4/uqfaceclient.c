@@ -320,7 +320,7 @@ Arguments* file_checking(Arguments* args)
     }
     if (args->outputFilename != NULL) {
         args->outputFile = fopen(args->outputFilename,
-                "rw"); // should be open (truncate if exist, write if not)
+                "w+"); // should be open (truncate if exist, write if not)
         if (!args->outputFile) {
             empty_output_file(args->outputFilename);
         }
@@ -485,36 +485,30 @@ int write_message(Message* message, int socketFD)
 }
 
 // TODO: maybe check for valid size
+// 		 free before exit
+// 		 have a more reliable way of finding communication error without casting things to unsigned
 void write_img_to_file(int socket, Arguments* args)
 {
     // get file size
     FILE* stream = args->outputFile;
     uint32_t* size = (uint32_t*)malloc(sizeof(uint32_t));
-    read(socket, size, sizeof(uint32_t));
+    if (read(socket, size, sizeof(uint32_t)) < sizeof(uint32_t)) {
+		free((uint32_t*)size);
+		communication_error();
+	}
 
 	// store data in buffer
     uint8_t* imageData = (uint8_t*)malloc(*size);
-    read(socket, imageData, *size);
+    if (read(socket, imageData, *size) < *size) {
+		free((uint8_t*)imageData);
+		free((uint32_t*)size);
+		communication_error();
+	}
 
     // write to output stream
 	fwrite(imageData, sizeof(uint8_t), (size_t)*size, stream);
 	fflush(stream);
-	/*
-    size_t total = 0;
-    const uint8_t* pointer = imageData;
-    while (total < *size) {
-        ssize_t written = fwrite(
-                pointer + total, sizeof(uint8_t), (size_t)*size, stream);
-        if (written < 0) {
-            //perror("WRITE TO FILE ERROR\n"); // debug
-        }
-        if (written == 0) {
-            //perror("UNEXPECTED EOF OR SIGPIPE"); // debug
-            break;
-        }
-        total += written;
-    }
-	*/
+
 	if (args->outputFilename) {
 		fclose(args->outputFile);
 	}
@@ -524,7 +518,7 @@ void write_img_to_file(int socket, Arguments* args)
 char* byte_to_string(uint8_t* input, uint32_t length)
 {
     char* string = (char*)malloc(length + 1);
-    memcpy(string, input, length);
+	memcpy(string, input, length);
     string[length] = '\0';
     return string;
 }
@@ -537,14 +531,15 @@ void print_error_message(int socket)
 
     // get message as byte stream
     uint8_t* inputStream = (uint8_t*)malloc(sizeof(uint8_t));
-    read(socket, inputStream, sizeof(uint8_t));
+    read(socket, inputStream, *size);
 
     // print to stderr
     char* errMsg = byte_to_string(inputStream, *size);
-    fprintf(stderr, runtimeErrMsg, errMsg);
+    fprintf(stderr, runtimeErrMsg, inputStream); 
     free((char*)errMsg);
     free((uint32_t*)size);
     free((uint8_t*)inputStream);
+	exit(EXIT_RUNTIME);
 }
 
 // TODO: remove this
@@ -582,7 +577,10 @@ void read_message(int socket, Arguments* args)
 {
     // read prefix first
     uint32_t* prefixBuffer = (uint32_t*)malloc(sizeof(uint32_t));
-    read(socket, prefixBuffer, sizeof(uint32_t));
+    if ((read(socket, prefixBuffer, sizeof(uint32_t))) < sizeof(uint32_t))
+	{
+		communication_error();
+	}
     if (*prefixBuffer != imgPrefix) {
         free((uint32_t*)prefixBuffer);
         communication_error();
@@ -591,14 +589,19 @@ void read_message(int socket, Arguments* args)
 
     // read operation
     uint8_t* opBuffer = (uint8_t*)malloc(sizeof(uint8_t));
-    read(socket, opBuffer, sizeof(uint8_t));
+    if (read(socket, opBuffer, sizeof(uint8_t)) < sizeof(uint8_t)) {
+		free((uint8_t*)opBuffer);
+		communication_error();
+	}
+			
     if (*opBuffer == OUTPUT_IMAGE) {
+		free((uint8_t*)opBuffer);
         write_img_to_file(socket, args);
     }
-    if (*opBuffer == ERROR_MESSAGE) {
+	else if (*opBuffer == ERROR_MESSAGE) {
+		free((uint8_t*)opBuffer);
         print_error_message(socket);
     }
-    free((uint8_t*)opBuffer);
 }
 
 Image read_from_stdin(void) {

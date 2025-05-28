@@ -178,6 +178,7 @@ void* client_handler(void* c);
 void print_statistics(Statistics stats);
 ClientStruct* init_client_parameters(int fd, CascadeStruct* cascade, sem_t* lock);
 void server_runtime (int fdServer, Arguments* serverArgs, CascadeStruct* cascadeParam, sem_t* sem);
+void DEBUG_PRINT_MESSAGE(Message* message);
 
 //---------------------------------------------------------------------------//
 // TODO: redirect all stdout and stderr (EXCEPT LISTENING PORT NUM AND ERROR MSGS) to /dev/null
@@ -437,9 +438,31 @@ Message* format_message(OperationType operation, uint32_t length, uint8_t* conte
 	message->prefix = MSG_PREFIX;
 	message->operation = operation;
 	message->detectImgSize = length;
-	message->detectImgContent = (uint8_t*)malloc(length * sizeof(uint8_t));
+	message->detectImgContent = (uint8_t*)malloc(length);
 	memcpy(message->detectImgContent, content, length);
 	return message;	
+}
+
+void DEBUG_PRINT_MESSAGE(Message* message)
+{
+    printf("Prefix: %X\n", message->prefix);
+    printf("Operation: %d\n", message->operation);
+    printf("Image Size: %d\n", message->detectImgSize);
+    if (message->detectImgContent) {
+        printf("Image Exists\n");
+    } else {
+        printf("Image doesn't exist\n");
+    }
+    if (message->replaceImgSize) {
+        printf("Image2 Size: %d\n", message->replaceImgSize);
+    } else {
+        printf("Image2 doesn't exist\n");
+    }
+    if (message->replaceImgContent) {
+        printf("Image Exists\n");
+    } else {
+        printf("Image2 doesn't exist\n");
+    }
 }
 
 void write_message(int socket, Message* message) {
@@ -455,6 +478,8 @@ void write_message(int socket, Message* message) {
 	memcpy(messageBuffer + offset, &(message->detectImgSize), sizeof(uint32_t));
 	offset += sizeof(uint32_t);
 	memcpy(messageBuffer + offset, message->detectImgContent, message->detectImgSize);
+
+	DEBUG_PRINT_MESSAGE(message);
 
 	write(socket, messageBuffer, messageSize);
 }
@@ -477,9 +502,12 @@ void send_response_file (int socket) {
 // 		 prefix; operation type; err msg size; err msg
 void send_error_message(int socket, ErrorMessageCodes errorCode) {
 	size_t errorMessageLength = strlen(errorMessageList[errorCode]);
+	uint8_t* buffer = (uint8_t*)malloc(errorMessageLength);
+	memcpy(buffer, errorMessageList[errorCode], errorMessageLength);
 	
-	Message* errorMessage = format_message(ERROR_MESSAGE, errorMessageLength, (uint8_t*)errorMessageList[errorCode]);
+	Message* errorMessage = format_message(ERROR_MESSAGE, errorMessageLength, buffer);
 	write_message(socket, errorMessage);
+	free((uint8_t*)buffer);
 }
 
 bool message_check(int socket, ssize_t numRead, uint32_t length) {
@@ -541,8 +569,9 @@ OpenCVStruct* read_and_load_param(int socket, CascadeStruct* cascadeParam) {
 	 
 	// reads detect img data 
 	if (!read_to_temp_file(socket)) {
-		// send error message INVALID MESSAGE and return
-		send_error_message(socket, INVALID_MESSAGE);
+		OpenCVStruct* errorImage = init_OpenCV_struct();
+		errorImage->error = true;
+		return errorImage;
 	}
 
 	// load detect image to temp file 
@@ -551,8 +580,8 @@ OpenCVStruct* read_and_load_param(int socket, CascadeStruct* cascadeParam) {
 	// replace face functionality
 	if (operation == FACE_REPLACE) {
 		if (!read_to_temp_file(socket)) {
-			// send error message and return
-			send_error_message(socket, INVALID_MESSAGE);
+			detectImage->error = true;
+			return detectImage;
 		}
 		OpenCVStruct* replaceImage = load_replace_image(cascadeParam, detectImage);
 		return replaceImage;
@@ -600,7 +629,6 @@ OpenCVStruct* load_detect_image(CascadeStruct* cascadeParam) {
 	OpenCVStruct* image = init_OpenCV_struct();
 	image->frame = cvLoadImage(tempFileDir, CV_LOAD_IMAGE_COLOR);
 	if (!image->frame) { // error loading; send error message and close connection
-		//send_error_message(socket, IMAGE_LOAD_ERROR); // TODO: sending error message
 		cvReleaseHaarClassifierCascade(&(cascadeParam->faceCascade)); // TODO: confirm this
 		cvReleaseHaarClassifierCascade(&(cascadeParam->eyeCascade));
 		image->error = true;
@@ -766,6 +794,7 @@ void* client_handler(void* c) {
 	if (image->error) {
 		// close connection
 		// TODO: free
+		send_error_message(clientInfo->socket, IMAGE_LOAD_ERROR);
 		return NULL;
 	}
 	if (image->replace) {

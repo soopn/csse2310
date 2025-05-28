@@ -597,7 +597,7 @@ Image read_from_stdin(void) {
 	Image img;
 	img.size = 0;
 	img.data = (uint8_t*)malloc(sizeof(uint8_t));
-	while ((read(STDIN_FILENO, img.data, sizeof(uint8_t)) > 0)) {
+	while ((read(STDIN_FILENO, img.data, sizeof(uint8_t)) != EOF)) {
 		img.data = (uint8_t*)realloc(img.data, img.size * sizeof(uint8_t));
 		img.size++;
 	}
@@ -629,7 +629,7 @@ void client_runtime(Arguments* args, int socketFD)
 	if (!input_file_or_stdin(args)) { // read from stdin
 		Image detectImage = read_from_stdin();
 		Message* message = init_message();
-		message->prefix = ntohl(imgPrefix); //TODO: confirm endianness
+		message->prefix = htonl(imgPrefix); //TODO: confirm endianness
 		if (args->replaceFile) { // formats message
 			message->operation = FACE_REPLACE;
 			message->detectImgSize = detectImage.size; //free

@@ -333,6 +333,7 @@ CascadeStruct* init_cascade_struct(Arguments* args) { // TODO: FREE THIS EVERYWH
 
 // TODO: remove debugging
 // 		 add mutex to limit maximum clients
+// 		 make shorter
 int open_listen_connection(Arguments* args) {
     struct addrinfo* ai = 0;
     struct addrinfo hints;
@@ -356,16 +357,6 @@ int open_listen_connection(Arguments* args) {
 		exit_port(args->port);
     }
 
-	/* NOT SURE IF NECESSARY
-    // Allow address (port number) to be reused immediately
-    int optVal = 1;
-    if (setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &optVal, sizeof(int))
-            < 0) {
-        perror("Error setting socket option");
-        exit(1);
-    }
-	*/
-
     // Bind socket to address
     if (bind(listenFD, (struct sockaddr*)ai->ai_addr, sizeof(struct sockaddr)) < 0) { // not sure about the casting
 		close(listenFD);
@@ -377,13 +368,19 @@ int open_listen_connection(Arguments* args) {
 	
 	// Get portnum
 	struct sockaddr_in ad;
-	socklen_t len = sizeof(struct sockaddr_in);
 	memset(&ad, 0, sizeof(struct sockaddr_in));
+	socklen_t len = sizeof(struct sockaddr_in);
 	if (getsockname(listenFD, (struct sockaddr*)&ad, &len)) {
 		perror("sockname"); // debug
 		exit(4);
 	}
-	fprintf(stderr, "%d\n", ntohs(ad.sin_port));
+	fprintf(stderr, "%u\n", ntohs(ad.sin_port));
+
+	if (listen(listenFD, 0) < 0) {
+		perror("Listen");
+		exit(4);
+	}
+
 	fflush(stderr);
 	fflush(stdout);
 	return listenFD;
@@ -798,7 +795,7 @@ void server_runtime (int fdServer, Arguments* serverArgs, CascadeStruct* cascade
 	socklen_t fromAddrSize;
 	int conditional = serverArgs->maxClients;
 
-	while(conditional ? 1 : (connections < conditional)) {
+	while(!conditional || connections < conditional) { // opens connection, has write error, then seg faults  TODO
 		
         fromAddrSize = sizeof(struct sockaddr_in);
         // Block, waiting for a new connection. (fromAddr will be populated
@@ -806,6 +803,9 @@ void server_runtime (int fdServer, Arguments* serverArgs, CascadeStruct* cascade
 
 		// accept connection
         fd = accept(fdServer, (struct sockaddr*)&fromAddr, &fromAddrSize);
+		if (fd < 0) {
+			continue;
+		}
 		connections++;
 	
 		ClientStruct* clientParam = init_client_parameters(fd, cascadeParam, sem);

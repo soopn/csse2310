@@ -172,7 +172,7 @@ OpenCVStruct* load_detect_image(OpenCVStruct* image, CascadeStruct* cascadeParam
 OpenCVStruct* load_replace_image(CascadeStruct* cascadeParam, OpenCVStruct* image);
 void cv_detect_faces(CascadeStruct* cascadeParam, OpenCVStruct* image);
 void cv_detect_and_replace_faces(CascadeStruct* cascadeParam, OpenCVStruct* image);
-int read_to_memory(int socket, void* memoryDest, size_t count);
+uint32_t read_to_memory(int socket, void* memoryDest, size_t count);
 bool read_check_prefix(int socket);
 uint8_t read_operation(int socket);
 bool read_to_temp_file(int socket);
@@ -514,7 +514,7 @@ void send_error_message(int socket, ErrorMessageCodes errorCode) {
 	free((uint8_t*)buffer);
 }
 
-bool message_check(int socket, ssize_t numRead, uint32_t length) { //TODO might be redundant
+bool message_check(int socket, ssize_t numRead, uint32_t length) { 
 	if (length > MAX_SIZE) {
 		send_error_message(socket, IMAGE_TOO_LARGE);
 		return true;
@@ -548,21 +548,26 @@ OpenCVStruct* read_and_load_param(int socket, uint8_t op, CascadeStruct* cascade
 	// reads detect img data 
 	if (!read_to_temp_file(socket)) {
 		image->error = true;
-		send_error_message(socket, IMAGE_LOAD_ERROR);
 		return image;
 	}
 
 	// load detect image to temp file 
 	OpenCVStruct* detectImage = load_detect_image(image, cascadeParam);
+	if (detectImage->error) {
+		send_error_message(socket, IMAGE_LOAD_ERROR);
+		return detectImage;
+	}
 	
 	// replace face functionality
 	if (op == FACE_REPLACE) {
 		if (!read_to_temp_file(socket)) {
 			detectImage->error = true;
-			send_error_message(socket, IMAGE_LOAD_ERROR);
 			return detectImage;
 		}
 		OpenCVStruct* replaceImage = load_replace_image(cascadeParam, detectImage);
+		if (replaceImage->error) {
+			send_error_message(socket, IMAGE_LOAD_ERROR);
+		}
 		return replaceImage;
 	}
 	return detectImage;
@@ -570,14 +575,14 @@ OpenCVStruct* read_and_load_param(int socket, uint8_t op, CascadeStruct* cascade
 
 bool read_to_temp_file(int socket) {
 	uint32_t* imageSize = (uint32_t*)malloc(sizeof(uint32_t));
-	int status = read_to_memory(socket, imageSize, sizeof(uint32_t));
-	if (status > 0) {
+	uint32_t status = read_to_memory(socket, imageSize, sizeof(uint32_t));
+	if (message_check(socket, status, sizeof(uint32_t))) {
 		free((uint32_t*)imageSize);
 		return false;
 	}
 	uint8_t* imageData = (uint8_t*)malloc(sizeof(uint8_t) * *imageSize);
 	status = read_to_memory(socket, imageData, *imageSize);
-	if (status > 0) {
+	if (message_check(socket, status, *imageSize)) {
 		free((uint32_t*)imageSize);
 		free((uint8_t*)imageData);
 		return false;
@@ -742,8 +747,10 @@ void cv_detect_and_replace_faces(CascadeStruct* cascadeParam, OpenCVStruct* imag
 
 uint8_t read_operation(int socket) {
 	uint8_t* opBuffer = (uint8_t*)malloc(sizeof(uint8_t));
-	if (read(socket, opBuffer, sizeof(uint8_t)) < 0) {
-		return 2;
+	uint32_t numRead = read_to_memory(socket, opBuffer, sizeof(uint8_t));
+	if (!message_check(socket, numRead, sizeof(uint8_t))) {
+		free((uint8_t*)opBuffer);
+		return ERROR_MESSAGE;
 	}
 	uint8_t operation = *opBuffer;
 	free((uint8_t*)opBuffer);
@@ -774,53 +781,31 @@ void write_from_temp_file(int socket) {
 	fread(imageData, sizeof(uint8_t), imageSize, tempFile);
 	fclose(tempFile);
 	write_from_memory(socket, imageData, imageSize);
+	free((uint8_t*)imageData);
 }
 
 /* 0 on successful read
  * 1 if invalid size
  * -1 if unexpected EOF
  */
-int read_to_memory(int socket, void* memoryDest, size_t count) {
+uint32_t read_to_memory(int socket, void* memoryDest, size_t count) {
 	uint8_t* buffer = (uint8_t*)malloc(count);
-	size_t numRead = 0;
-	while (numRead < count) {
-		ssize_t result = read(socket, buffer, sizeof(uint8_t));
-		if (result < 0) {
-			free((uint8_t*)buffer);
-			return -1;
-		}
-		numRead += result;
-		memcpy((uint8_t*)memoryDest + numRead, buffer, count);
-	}
-	if (numRead != count) {
-		free((uint8_t*)buffer);
-		return 1;
+	uint32_t numRead = 0;
+	while (read(socket, buffer, sizeof(uint8_t)) > 0) {
+		numRead++;
+		memcpy((uint8_t*)memoryDest + numRead, buffer, sizeof(uint8_t));
 	}
 	free((uint8_t*)buffer);
-	return 0;
+	return numRead;
 }
 
 bool read_check_prefix(int socket) {
 	uint32_t* prefixBuffer = (uint32_t*)malloc(sizeof(uint32_t));
-	int status = read_to_memory(socket, prefixBuffer, sizeof(uint32_t));
-	switch (status) {
-		case 0:
-			if (*prefixBuffer == MSG_PREFIX) {
-				return true;
-			}
-			else {
-				send_response_file(socket);
-				return false;
-			}
-			break;
-		case 1:
-			send_response_file(socket);
-			return false;
-			break;
-		case -1: // TODO unsure about this, implies EOF while reading prefix
-			send_response_file(socket);
-			return false;
-			break;
+	uint32_t result = read_to_memory(socket, prefixBuffer, sizeof(uint32_t));
+	if (*prefixBuffer != MSG_PREFIX) {
+		send_response_file(socket);
+		free((uint32_t*)prefixBuffer);
+		return false;
 	}
 	free((uint32_t*)prefixBuffer);
 	return true;
@@ -834,20 +819,20 @@ void* client_handler(void* c) {
 	sem_wait(clientInfo->lock);
 
 	if (!read_check_prefix(clientInfo->socket)) {
-		return NULL;
+		pthread_exit(NULL);
 	}
 	
 	// read operation
 	uint8_t operation = read_operation(clientInfo->socket);
-	if (operation != FACE_DETECT && operation != FACE_REPLACE) {
+	if (operation != FACE_DETECT && operation != FACE_REPLACE && operation != ERROR_MESSAGE) {
 		send_error_message(clientInfo->socket, INVALID_OPERATION);
-		return NULL;
+		pthread_exit(NULL);
 	}
 
 	OpenCVStruct* image = read_and_load_param(clientInfo->socket, operation, clientInfo->cascade);
 	if (image->error) { 
 		//TODO freeing
-		return NULL;
+		pthread_exit(NULL);
 	}
 	if (image->replace) {
 		cv_detect_and_replace_faces(clientInfo->cascade, image);
@@ -858,7 +843,7 @@ void* client_handler(void* c) {
 	write_from_temp_file(clientInfo->socket); 
 	sem_post(clientInfo->lock);
 	// TODO: free malloc'd stuff
-	return NULL;
+	pthread_exit(NULL);
 }
 
 /* BEHAVIOUR:

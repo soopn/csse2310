@@ -585,7 +585,6 @@ int read_to_buf(int socket, void* dest, uint32_t len) {
 		result = read(socket, buffer, sizeof(uint8_t));
 		if (result < 0) {
 			free((uint8_t*)buffer);
-			send_error_message(socket, INVALID_MESSAGE);
 			return -1;
 		}
 		memcpy((uint8_t*)dest + i, buffer, 1);
@@ -593,8 +592,10 @@ int read_to_buf(int socket, void* dest, uint32_t len) {
 	}
 	free((uint8_t*)buffer);
 	if (tally < len) {
-		send_error_message(socket, INVALID_MESSAGE);
 		return -1;
+	}
+	if (tally == 0) {
+		return 1;
 	}
 	return 0;
 }
@@ -876,16 +877,11 @@ ErrorMessageCodes read_check_prefix(int socket) {
 
 OperationType read_operation(int socket) {
 	uint8_t* opBuffer = (uint8_t*)malloc(sizeof(uint8_t));
-	if (read_to_buf(socket, opBuffer, sizeof(uint8_t)) < 0) {
+ 	if (read_to_buf(socket, opBuffer, sizeof(uint8_t)) < 0) {
 		free((uint8_t*)opBuffer);
 		return ERROR_MESSAGE;
 	}
 	
-	if (*opBuffer == 0) {
-		free((uint8_t*)opBuffer);
-		return ERROR_MESSAGE;
-	}
-
 	OperationType operation = *opBuffer;
 	free((uint8_t*)opBuffer);
 
@@ -901,6 +897,7 @@ Instructions read_message(int socket) {
 	err = read_check_prefix(socket);
 	if (err == INVALID_MESSAGE) {
 		inst.error = err;
+		send_error_message(socket, INVALID_MESSAGE);
 		return inst;
 	}
 	else if (err == RESPONSE_FILE) {
@@ -916,19 +913,15 @@ Instructions read_message(int socket) {
 			inst.error = INVALID_OPERATION;
 			return inst;
 		}
-		send_error_message(socket, INVALID_MESSAGE);
-		inst.error = INVALID_MESSAGE;
-		return inst;
+		if (op == ERROR_MESSAGE) {
+			send_error_message(socket, INVALID_MESSAGE);
+			inst.error = INVALID_MESSAGE;
+			return inst;
+		}
 	}
 
 	err = read_data(socket);
-	if (err == INVALID_MESSAGE) {
-		send_error_message(socket, err);
-		inst.error = err;
-		return inst;
-	}
-	if (err == IMAGE_TOO_LARGE) {
-		send_error_message(socket, err);
+	if (err != SUCCESS) {
 		inst.error = err;
 		return inst;
 	}
@@ -940,20 +933,29 @@ Instructions read_message(int socket) {
  * reads image data ad stores into temp file if valid
  */
 ErrorMessageCodes read_data(int socket) {
-	uint32_t* imageSize = (uint32_t*)malloc(sizeof(uint32_t));
-	if (read_to_buf(socket, imageSize, sizeof(uint32_t)) < 0) {
-		free((uint32_t*)imageSize);
-		return INVALID_MESSAGE;
+	uint32_t* imageSize = (uint32_t*)calloc(1, sizeof(uint32_t));
+	int result = read_to_buf(socket, imageSize, sizeof(uint32_t));
+	if (result < 0) {
+		free((uint32_t*)imageSize); // TODO
+		return IMAGE_ZERO_BYTES;
 	}
 	if (*imageSize > MAX_SIZE) {
 		free((uint32_t*)imageSize);
+		send_error_message(socket, IMAGE_TOO_LARGE);
 		return IMAGE_TOO_LARGE;
 	}
+	if (*imageSize == 0) {
+		free((uint32_t*)imageSize);
+		send_error_message(socket, IMAGE_ZERO_BYTES);
+		return IMAGE_ZERO_BYTES;
+	}
+
 	uint8_t* imageData = (uint8_t*)malloc(*imageSize);
 	if (read_to_buf(socket, imageData, *imageSize) < 0) {
 		free((uint32_t*)imageSize);
 		free((uint8_t*)imageData);
-		return INVALID_MESSAGE;
+		send_error_message(socket, IMAGE_ZERO_BYTES);
+		return IMAGE_ZERO_BYTES;
 	}
 	load_temp_file(imageData, *imageSize);
 	free((uint32_t*)imageSize);

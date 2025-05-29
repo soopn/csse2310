@@ -191,6 +191,8 @@ void server_runtime (int fdServer, Arguments* serverArgs, CascadeStruct* cascade
 void DEBUG_PRINT_MESSAGE(Message* message);
 int read_to_buf(int socket, void* dest, uint32_t len);
 ErrorMessageCodes read_data(int socket);
+void close_connection(ClientStruct* c);
+bool check_open_connection(int socket);
 
 //---------------------------------------------------------------------------//
 // TODO: redirect all stdout and stderr (EXCEPT LISTENING PORT NUM AND ERROR MSGS) to /dev/null
@@ -438,8 +440,6 @@ void load_temp_file(uint8_t* fileBuf, uint32_t fileSize) {
 	int tempFile = open(tempFileDir, O_WRONLY | O_TRUNC);
 	write_from_memory(tempFile, fileBuf, fileSize);
 
-	free((uint8_t*) fileBuf);
-
 	// release semaphone
 	close(tempFile);
 }
@@ -492,8 +492,6 @@ void write_message(int socket, Message* message) {
 	memcpy(messageBuffer + offset, &(message->detectImgSize), sizeof(uint32_t));
 	offset += sizeof(uint32_t);
 	memcpy(messageBuffer + offset, message->detectImgContent, message->detectImgSize);
-
-	DEBUG_PRINT_MESSAGE(message);
 
 	write(socket, messageBuffer, messageSize);
 }
@@ -578,18 +576,35 @@ OpenCVStruct* read_and_load_param(int socket, uint8_t op, CascadeStruct* cascade
 	return detectImage;
 }
 
+// returns 0 on successful read, -1 on closing of socket
 int read_to_buf(int socket, void* dest, uint32_t len) {
 	uint8_t* buffer = (uint8_t*)malloc(sizeof(uint8_t));
+	ssize_t result;
+	uint32_t tally = 0;
 	for (uint32_t i  = 0 ; i < len ; i++) {
-		if ((read(socket, buffer, 1)) < 0) {
+		result = read(socket, buffer, sizeof(uint8_t));
+		if (result < 0) {
 			free((uint8_t*)buffer);
 			send_error_message(socket, INVALID_MESSAGE);
 			return -1;
 		}
 		memcpy((uint8_t*)dest + i, buffer, 1);
+		tally += result;
 	}
 	free((uint8_t*)buffer);
+	if (tally < len) {
+		send_error_message(socket, INVALID_MESSAGE);
+		return -1;
+	}
 	return 0;
+}
+
+bool check_open_connection(int socket) {
+	if (recv(socket, NULL, 1, MSG_PEEK) != 0) { // REF: suggested by Copilot
+		send_error_message(socket, INVALID_MESSAGE);
+		return false;
+	}
+	return true;
 }
 
 bool read_to_temp_file(int socket) {
@@ -865,6 +880,11 @@ OperationType read_operation(int socket) {
 		free((uint8_t*)opBuffer);
 		return ERROR_MESSAGE;
 	}
+	
+	if (*opBuffer == 0) {
+		free((uint8_t*)opBuffer);
+		return ERROR_MESSAGE;
+	}
 
 	OperationType operation = *opBuffer;
 	free((uint8_t*)opBuffer);
@@ -880,7 +900,6 @@ Instructions read_message(int socket) {
 	ErrorMessageCodes err;
 	err = read_check_prefix(socket);
 	if (err == INVALID_MESSAGE) {
-		send_error_message(socket, err);
 		inst.error = err;
 		return inst;
 	}
@@ -890,10 +909,15 @@ Instructions read_message(int socket) {
 		return inst;
 	}
 
-	OperationType operation = read_operation(socket);
-	if (operation == INVALID_OP) {
-		send_error_message(socket, INVALID_OPERATION);
-		inst.error = INVALID_OPERATION;
+	OperationType op = read_operation(socket);
+	if (op != FACE_DETECT || op != FACE_REPLACE) {
+		if (op == INVALID_OP) {
+			send_error_message(socket, INVALID_OPERATION);
+			inst.error = INVALID_OPERATION;
+			return inst;
+		}
+		send_error_message(socket, INVALID_MESSAGE);
+		inst.error = INVALID_MESSAGE;
 		return inst;
 	}
 
@@ -908,7 +932,7 @@ Instructions read_message(int socket) {
 		inst.error = err;
 		return inst;
 	}
-	inst.operation = operation;
+	inst.operation = op;
 	return inst;
 }
 
@@ -937,31 +961,43 @@ ErrorMessageCodes read_data(int socket) {
 	return SUCCESS;
 }
 
+void close_connection(ClientStruct* c) {
+	sem_post(c->lock);
+	close(c->socket);
+	pthread_exit(NULL);
+}
+
 // TODO: do a while true and continue instead of return NULL?
 // 		 read till image size before taking lock?
 void* client_handler(void* c) {
 	ClientStruct* clientInfo = (ClientStruct*)c;
-
+	
 	// take lock
 	sem_wait(clientInfo->lock);
 	Instructions inst = read_message(clientInfo->socket);
 	if (inst.error != SUCCESS) {
-		return NULL;
+		close_connection(clientInfo);
 	}
 	OpenCVStruct* image = init_OpenCV_struct();
 	OpenCVStruct* detectImage = load_detect_image(image, clientInfo->cascade);
 	free((OpenCVStruct*) image);
-	if (detectImage->error) {
+	if (detectImage->error == true) {
 		send_error_message(clientInfo->socket, IMAGE_LOAD_ERROR);
+		sem_post(clientInfo->lock);
+		close_connection(clientInfo);
 	}
 	else if (!detectImage->faces) {
 		send_error_message(clientInfo->socket, IMAGE_NO_FACE);
+		sem_post(clientInfo->lock);
+		close_connection(clientInfo);
 	}
 
 	if (inst.operation == FACE_REPLACE && !detectImage->error) {
 		OpenCVStruct* replaceImage = load_replace_image(clientInfo->cascade, detectImage);
 		if (!replaceImage->replace) {
 			send_error_message(clientInfo->socket, IMAGE_LOAD_ERROR);
+			sem_post(clientInfo->lock);
+			close_connection(clientInfo);
 		}
 		else {
 			cv_detect_and_replace_faces(clientInfo->cascade, replaceImage);
@@ -971,35 +1007,10 @@ void* client_handler(void* c) {
 		cv_detect_faces(clientInfo->cascade, detectImage);
 	}
 
-	/*
-	if (!read_check_prefix(clientInfo->socket)) {
-		return NULL;
-	}
-	
-	// read operation
-	uint8_t operation = read_operation(clientInfo->socket);
-	if (operation != FACE_DETECT && operation != FACE_REPLACE) {
-		send_error_message(clientInfo->socket, INVALID_OPERATION);
-		return NULL;
-	}
-	*/
-
-	/*
-	OpenCVStruct* image = read_and_load_param(clientInfo->socket, operation, clientInfo->cascade);
-	if (image->error) { 
-		//TODO freeing
-		return NULL;
-	}
-	if (image->replace) {
-		cv_detect_and_replace_faces(clientInfo->cascade, image);
-	}
-	else {
-		cv_detect_faces(clientInfo->cascade, image);
-	}
-	*/
 	write_from_temp_file(clientInfo->socket); 
 	sem_post(clientInfo->lock);
 	// TODO: free malloc'd stuff
+	close_connection(clientInfo);
 	return NULL;
 }
 

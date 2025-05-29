@@ -1,0 +1,44 @@
+29/5/2025 8.44pm interaction with Copilot
+
+Prompt: how can I check if a socket is still open in C
+
+Response:
+Checking if a socket is still open can be tricky because an active socket doesn’t necessarily mean the connection is healthy. Here are three reliable methods depending on your scenario:
+1. Use recv() with MSG_PEEK
+A lightweight check that doesn’t consume data:
+
+char buf;
+ssize_t result = recv(sock_fd, &buf, 1, MSG_PEEK);
+
+if (result == 0) {
+    printf("Connection closed by peer.\n");
+} else if (result < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+    perror("Socket error");
+} else {
+    printf("Socket is still open.\n");
+}
+
+2. Monitor with poll() or select()
+Detect disconnects (POLLHUP or select() timeout):
+
+struct pollfd pfd = {sock_fd, POLLIN | POLLHUP, 0};
+int ret = poll(&pfd, 1, 100);
+
+if (ret > 0 && (pfd.revents & POLLHUP)) {
+    printf("Socket has closed.\n");
+} else {
+    printf("Socket is still open.\n");
+}
+
+3. Check via getsockopt()
+Detecting lingering socket errors:
+
+int error = 0;
+socklen_t len = sizeof(error);
+getsockopt(sock_fd, SOL_SOCKET, SO_ERROR, &error, &len);
+
+if (error == 0) {
+    printf("Socket is open.\n");
+} else {
+    printf("Socket error detected: %s\n", strerror(error));
+}

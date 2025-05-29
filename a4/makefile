@@ -1,6 +1,6 @@
 CC = gcc
 
-CFLAGS = -Wall -g -pedantic -std=gnu99 -Wextra -ggdb3
+CFLAGS = -Wall -g -pedantic -std=gnu99 -Wextra 
 
 LIBDIR = /usr/lib64 
 LDFLAGS = -L$(LIBDIR) -lopencv_core -lopencv_imgcodecs -lopencv_objdetect -lopencv_imgproc -pthread

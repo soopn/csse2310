@@ -14,6 +14,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <pthread.h>
+#include <signal.h>
 #include <opencv2/imgcodecs/imgcodecs_c.h>
 #include <opencv2/imgproc/imgproc_c.h>
 #include <opencv2/objdetect/objdetect_c.h>
@@ -83,6 +84,14 @@ typedef enum {
 	SUCCESS = 7
 } ErrorMessageCodes;
 
+typedef enum {
+	CONNECTION = 0,
+	COMPLETED = 1,
+	DETECTION = 2,
+	REPLACE = 3,
+	MALFORMED = 4
+} Stats;
+
 typedef struct {
 	uint32_t prefix;
 	uint8_t operation;
@@ -118,21 +127,23 @@ typedef struct {
 	bool error;
 } OpenCVStruct;
 
-typedef struct { // TODO: might not be all there is
-	int socket;
-	CascadeStruct* cascade; // malloc'd
-	OpenCVStruct* openCVParameters;  // malloc'd
-	uint32_t imgMaxSize;
-	sem_t* lock;
-} ClientStruct;
-
 typedef struct {
 	uint32_t connections;
 	uint32_t completed;
 	uint32_t detectionRequests;
 	uint32_t replaceRequests;
 	uint32_t malformed;
+	pthread_mutex_t* statLock;
 } Statistics;
+
+typedef struct { 
+	int socket;
+	CascadeStruct* cascade; // malloc'd
+	OpenCVStruct* openCVParameters;  // malloc'd
+	uint32_t imgMaxSize;
+	sem_t* lock;
+	Statistics* stats;
+} ClientStruct;
 
 const char* const errorMessageList[] = {
 	"invalid message",
@@ -187,14 +198,20 @@ ErrorMessageCodes read_check_prefix(int socket);
 OperationType read_operation(int socket);
 bool read_to_temp_file(int socket);
 void* client_handler(void* c);
-void print_statistics(Statistics stats);
-ClientStruct* init_client_parameters(int fd, CascadeStruct* cascade, sem_t* lock, Arguments* programArgs);
-void server_runtime (int fdServer, Arguments* serverArgs, CascadeStruct* cascadeParam, sem_t* sem);
+void print_statistics(Statistics* stats);
+ClientStruct* init_client_parameters(int fd, CascadeStruct* cascade, sem_t* lock, Arguments* programArgs, Statistics* stats);
+void server_runtime (int fdServer, Arguments* serverArgs, CascadeStruct* cascadeParam, sem_t* sem, Statistics* stats);
 void DEBUG_PRINT_MESSAGE(Message* message);
 int read_to_buf(int socket, void* dest, uint32_t len);
 ErrorMessageCodes read_data(int socket, uint32_t imgMaxSize);
 void close_connection(ClientStruct* c);
 bool check_open_connection(int socket);
+Statistics* init_stats(void);
+void spawn_signal_handler(Statistics* stats);
+void increment_stats(Statistics* stats, Stats identifier);
+void* signal_handler(void* arg);
+void sigpipe_handler(int sig);
+void ignore_sigpipe(void);
 
 //---------------------------------------------------------------------------//
 // TODO: redirect all stdout and stderr (EXCEPT LISTENING PORT NUM AND ERROR MSGS) to /dev/null
@@ -205,13 +222,16 @@ bool check_open_connection(int socket);
 // 		 		* tempfile
 // 		 		* statistics struct
 int main(int argc, char** argv) {
+	ignore_sigpipe();
 	Arguments* args = argument_check(argc, argv);
 	tmp_file_check(args);
 	CascadeStruct* cascadeParameters = init_cascade_struct(args);
 	int serverFD = open_listen_connection(args);
 	sem_t lock;
 	sem_init(&lock, 0, 1);
-	server_runtime(serverFD, args, cascadeParameters, &lock);
+	Statistics* stats = init_stats();
+	spawn_signal_handler(stats);
+	server_runtime(serverFD, args, cascadeParameters, &lock, stats);
 
 	free((Arguments*)args);		
 	sem_destroy(&lock);
@@ -663,13 +683,14 @@ OpenCVStruct* init_OpenCV_struct() {
 	return temp;
 }
 
-ClientStruct* init_client_parameters(int fd, CascadeStruct* cascade, sem_t* lock, Arguments* programArgs) {
+ClientStruct* init_client_parameters(int fd, CascadeStruct* cascade, sem_t* lock, Arguments* programArgs, Statistics* stats) {
 	ClientStruct* info = (ClientStruct*)malloc(sizeof(ClientStruct));
 	info->socket = fd;
 	info->cascade = cascade;
 	info->openCVParameters = NULL;
 	info->imgMaxSize = programArgs->maxSize;
 	info->lock = lock;
+	info->stats = stats;
 	return info;
 }
 
@@ -984,6 +1005,69 @@ void close_connection(ClientStruct* c) {
 	pthread_exit(NULL);
 }
 
+void* signal_handler(void* arg) { // TODO might need to mutex
+	Statistics* data = (Statistics*)arg;
+	sigset_t sigset;
+	int sig;
+	sigemptyset(&sigset);
+	sigaddset(&sigset, SIGHUP);
+
+	while (1) {
+		if (sigwait(&sigset, &sig) == 0) {
+			print_statistics(data);
+		}
+	}
+}
+
+void sigpipe_handler(int sig) {
+	sig++;
+}
+
+void ignore_sigpipe(void) {
+	struct sigaction sa;
+	sa.sa_handler = sigpipe_handler;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = 0;
+
+	sigaction(SIGPIPE, &sa, NULL);
+}
+
+void spawn_signal_handler(Statistics* stats) { // REF: man pthread_sigmask
+	pthread_t signalThread;
+	sigset_t set;
+	sigemptyset(&set);
+	sigaddset(&set, SIGHUP);
+	pthread_sigmask(SIG_BLOCK, &set, NULL);
+	pthread_create(&signalThread, NULL, signal_handler, stats); 
+	pthread_detach(signalThread);
+}
+
+void increment_stats(Statistics* stat, Stats identifier) {
+	pthread_mutex_lock(stat->statLock);
+	switch (identifier) {
+		case CONNECTION:
+			stat->connections++;
+			break;
+		case COMPLETED:
+			stat->connections--;
+			stat->completed++;
+			break;
+		case DETECTION:
+			stat->detectionRequests++;
+			break;
+		case REPLACE:
+			stat->replaceRequests++;
+			break;
+		case MALFORMED:
+			stat->connections--;
+			stat->malformed++;
+			break;
+		default:
+			break;
+	}
+	pthread_mutex_unlock(stat->statLock);
+}
+
 // TODO: do a while true and continue instead of return NULL?
 // 		 read till image size before taking lock?
 void* client_handler(void* c) {
@@ -993,9 +1077,11 @@ void* client_handler(void* c) {
 	while(!endRuntime) {
 		// take lock
 		sem_wait(clientInfo->lock);
+		increment_stats(clientInfo->stats, CONNECTION);
 		Instructions inst = read_message(clientInfo->socket, clientInfo->imgMaxSize);
 		if (inst.error != SUCCESS) {
 			endRuntime = true;
+			increment_stats(clientInfo->stats, MALFORMED);
 			close_connection(clientInfo);
 		}
 		OpenCVStruct* image = init_OpenCV_struct();
@@ -1003,11 +1089,13 @@ void* client_handler(void* c) {
 		if (detectImage->error == true) {
 			endRuntime = true;
 			send_error_message(clientInfo->socket, IMAGE_LOAD_ERROR);
+			increment_stats(clientInfo->stats, MALFORMED);
 			close_connection(clientInfo);
 		}
 		else if (!detectImage->faces->total) {
 			endRuntime = true;
 			send_error_message(clientInfo->socket, IMAGE_NO_FACE);
+			increment_stats(clientInfo->stats, MALFORMED);
 			close_connection(clientInfo);
 		}
 
@@ -1016,21 +1104,26 @@ void* client_handler(void* c) {
 			if (!replaceImage->replace) {
 				endRuntime = true;
 				send_error_message(clientInfo->socket, IMAGE_LOAD_ERROR);
+				increment_stats(clientInfo->stats, MALFORMED);
 				free((OpenCVStruct*)detectImage);
 				free((OpenCVStruct*)replaceImage);
+				increment_stats(clientInfo->stats, MALFORMED);
 				close_connection(clientInfo);
 			}
 			else {
 				cv_detect_and_replace_faces(replaceImage);
 				free((OpenCVStruct*)replaceImage);
+				increment_stats(clientInfo->stats, REPLACE);
 			}
 		}
 		else {
 			cv_detect_faces(clientInfo->cascade, detectImage);
+			increment_stats(clientInfo->stats, DETECTION);
 		}
 
 		write_from_temp_file(clientInfo->socket); 
 		free((OpenCVStruct*) image);
+		increment_stats(clientInfo->stats, COMPLETED);
 		sem_post(clientInfo->lock);
 		// TODO: free malloc'd stuff
 	}
@@ -1049,14 +1142,13 @@ void* client_handler(void* c) {
  * TODO: increment statistics and protect with semaphone
  * 		 might have to redir to /dev/null
  */
-void server_runtime (int fdServer, Arguments* serverArgs, CascadeStruct* cascadeParam, sem_t* sem) {
-	int connections = 0;
+void server_runtime (int fdServer, Arguments* serverArgs, CascadeStruct* cascadeParam, sem_t* sem, Statistics* stats) {
 	int fd;
 	struct sockaddr_in fromAddr;
 	socklen_t fromAddrSize;
-	int conditional = serverArgs->maxClients;
+	uint32_t conditional = serverArgs->maxClients;
 
-	while(!conditional || connections < conditional) { 
+	while(!conditional || stats->connections < conditional) { 
 		
         fromAddrSize = sizeof(struct sockaddr_in);
         // Block, waiting for a new connection. (fromAddr will be populated
@@ -1064,14 +1156,8 @@ void server_runtime (int fdServer, Arguments* serverArgs, CascadeStruct* cascade
 
 		// accept connection
         fd = accept(fdServer, (struct sockaddr*)&fromAddr, &fromAddrSize);
-		/* TODO CONFIRM THIS
-		if (fd < 0) {
-			continue;
-		}
-		*/
-		connections++;
 	
-		ClientStruct* clientParam = init_client_parameters(fd, cascadeParam, sem, serverArgs);
+		ClientStruct* clientParam = init_client_parameters(fd, cascadeParam, sem, serverArgs, stats);
 
 		// threading
 		pthread_t threadID;
@@ -1080,24 +1166,38 @@ void server_runtime (int fdServer, Arguments* serverArgs, CascadeStruct* cascade
 	}
 	cvReleaseHaarClassifierCascade(&(cascadeParam->faceCascade));
 	cvReleaseHaarClassifierCascade(&(cascadeParam->eyeCascade));
+	sem_destroy(sem);
+	free((pthread_mutex_t*)stats->statLock);
+	pthread_mutex_destroy(stats->statLock);
 }
 
-void print_statistics(Statistics stats) {
+Statistics* init_stats(void) {
+	Statistics* data = (Statistics*)malloc(sizeof(Statistics));
+	data->connections = 0;
+	data->completed = 0;
+	data->detectionRequests = 0;
+	data->malformed = 0;
+	data->statLock = (pthread_mutex_t*)malloc(sizeof(pthread_mutex_t));
+	pthread_mutex_init(data->statLock, NULL);
+	return data;
+}
+
+void print_statistics(Statistics* stats) {
 	int i = 0;
 	fprintf(stderr, "%s", statisticsList[i]);
 	i++;
-	fprintf(stderr, "%d\n", stats.connections);
+	fprintf(stderr, "%d\n", stats->connections);
 	fprintf(stderr, "%s", statisticsList[i]);
 	i++;
-	fprintf(stderr, "%d\n", stats.completed);
+	fprintf(stderr, "%d\n", stats->completed);
 	fprintf(stderr, "%s", statisticsList[i]);
 	i++;
-	fprintf(stderr, "%d\n", stats.detectionRequests);
+	fprintf(stderr, "%d\n", stats->detectionRequests);
 	fprintf(stderr, "%s", statisticsList[i]);
 	i++;
-	fprintf(stderr, "%d\n", stats.replaceRequests);
+	fprintf(stderr, "%d\n", stats->replaceRequests);
 	fprintf(stderr, "%s", statisticsList[i]);
 	i++;
-	fprintf(stderr, "%d\n", stats.malformed);
+	fprintf(stderr, "%d\n", stats->malformed);
 	fflush(stderr);
 }

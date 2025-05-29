@@ -179,9 +179,9 @@ OpenCVStruct* read_and_load_param(int socket, uint8_t op, CascadeStruct* cascade
 Message* format_message(OperationType operation, uint32_t length, uint8_t* content);
 OpenCVStruct* init_OpenCV_struct();
 OpenCVStruct* load_detect_image(OpenCVStruct* image, CascadeStruct* cascadeParam);
-OpenCVStruct* load_replace_image(CascadeStruct* cascadeParam, OpenCVStruct* image);
+OpenCVStruct* load_replace_image(OpenCVStruct* image);
 void cv_detect_faces(CascadeStruct* cascadeParam, OpenCVStruct* image);
-void cv_detect_and_replace_faces(CascadeStruct* cascadeParam, OpenCVStruct* image);
+void cv_detect_and_replace_faces(OpenCVStruct* image);
 int read_to_memory(int socket, void* memoryDest, size_t count);
 ErrorMessageCodes read_check_prefix(int socket);
 OperationType read_operation(int socket);
@@ -333,7 +333,7 @@ void clean(Arguments* args) {
 
 // just to check, each thread will open the file themselves later to adhere to mutex
 void tmp_file_check(Arguments* args) {
-	FILE* tmp = fopen(tempFileDir,"w");
+	FILE* tmp = fopen(tempFileDir,"wrb");
 	if (!tmp) {
 		clean(args);
 		exit(EXIT_IMAGE_WRITE);
@@ -441,7 +441,9 @@ void load_temp_file(uint8_t* fileBuf, uint32_t fileSize) {
 	// semaphone thingy here
 	
 	int tempFile = open(tempFileDir, O_WRONLY | O_TRUNC);
-	write_from_memory(tempFile, fileBuf, fileSize);
+	for (uint32_t i = 0 ; i < fileSize ; i++) {
+		write(tempFile, (uint8_t*)fileBuf + i, 1);
+	}
 
 	// release semaphone
 	close(tempFile);
@@ -503,7 +505,7 @@ void write_message(int socket, Message* message) {
 void send_response_file (int socket) {
 	// read and store response file
 	FILE* responseFile = fopen(responseFileDir, "r");
-	long responseFileSize = get_file_size(responseFile);
+	uint32_t responseFileSize = get_file_size(responseFile);
 	uint8_t* responseFileContents = (uint8_t*)malloc(responseFileSize);
 	fread(responseFileContents, sizeof(uint8_t), responseFileSize, responseFile);
 
@@ -573,7 +575,7 @@ OpenCVStruct* read_and_load_param(int socket, uint8_t op, CascadeStruct* cascade
 			send_error_message(socket, IMAGE_LOAD_ERROR);
 			return detectImage;
 		}
-		OpenCVStruct* replaceImage = load_replace_image(cascadeParam, detectImage);
+		OpenCVStruct* replaceImage = load_replace_image(detectImage);
 		return replaceImage;
 	}
 	return detectImage;
@@ -674,8 +676,6 @@ ClientStruct* init_client_parameters(int fd, CascadeStruct* cascade, sem_t* lock
 OpenCVStruct* load_detect_image(OpenCVStruct* image, CascadeStruct* cascadeParam) {
 	image->frame = cvLoadImage(tempFileDir, CV_LOAD_IMAGE_COLOR);
 	if (!image->frame) { // error loading; send error message and close connection
-		cvReleaseHaarClassifierCascade(&(cascadeParam->faceCascade)); // TODO: confirm this
-		cvReleaseHaarClassifierCascade(&(cascadeParam->eyeCascade));
 		image->error = true;
 		return image;
 	}
@@ -689,15 +689,18 @@ OpenCVStruct* load_detect_image(OpenCVStruct* image, CascadeStruct* cascadeParam
 	image->faces = cvHaarDetectObjects(image->frameGray, cascadeParam->faceCascade, image->storage,
 									haarScaleFactor, haarMinNeighbours, haarFlags,
 									cvSize(haarMinSize, haarMinSize), cvSize(haarMaxSize, haarMaxSize));
+	if (image->faces->total == 0){
+		cvReleaseMemStorage(&(image->storage));
+		cvReleaseImage(&(image->frame));
+		cvReleaseImage(&(image->frameGray));
+	}
 	return image;
 }
 
-OpenCVStruct* load_replace_image(CascadeStruct* cascadeParam, OpenCVStruct* image) {
+OpenCVStruct* load_replace_image(OpenCVStruct* image) {
 	image->replace = cvLoadImage(tempFileDir, CV_LOAD_IMAGE_UNCHANGED);
-	cvReleaseHaarClassifierCascade(&(cascadeParam->eyeCascade));
 	if (!image->replace) {
 		cvReleaseImage(&(image->frame));
-		cvReleaseHaarClassifierCascade(&(cascadeParam->faceCascade)); // TODO: could release everything later together
 		image->error = true;
 	}
 	return image;
@@ -707,15 +710,15 @@ OpenCVStruct* load_replace_image(CascadeStruct* cascadeParam, OpenCVStruct* imag
 // 		 can probably be shortened with some initialising function
 // 		 check for no initialised faces
 void cv_detect_faces(CascadeStruct* cascadeParam, OpenCVStruct* image) {
+	const CvScalar magenta = cvScalar(255, 0, 255, 0);
+	const CvScalar blue = cvScalar(255, 0, 0, 0);
 	// iterate through each face and draw ellipses
 	for (int i = 0; i < image->faces->total; i++) {
 		CvRect* face = (CvRect*)cvGetSeqElem(image->faces, i);
 		CvPoint center = {face->x + face->width / 2, face->y + face->height / 2};
-		const CvScalar magenta = cvScalar(255, 0, 255, 0);
-		const CvScalar blue = cvScalar(255, 0, 0, 0);
-		cvEllipse(image->frame, center, cvSize(face->width / 2, face->height / 2), 0,
-			ellipseStartAngle, ellipseEndAngle, magenta, lineThickness,
-			lineType, shift);
+		cvEllipse(image->frame, center, cvSize(face->width / 2, face-> height /2), 0,
+				ellipseStartAngle, ellipseEndAngle, magenta, lineThickness,
+				lineType, shift);
 		IplImage* faceROI = cvCreateImage(cvGetSize(image->frameGray), IPL_DEPTH_8U, 1);
 		cvCopy(image->frameGray, faceROI, NULL);
 		cvSetImageROI(faceROI, *face);
@@ -746,12 +749,10 @@ void cv_detect_faces(CascadeStruct* cascadeParam, OpenCVStruct* image) {
 	cvSaveImage(tempFileDir, image->frame, 0); // free memory
 	cvReleaseImage(&(image->frame));
 	cvReleaseImage(&(image->frameGray));
-	cvReleaseHaarClassifierCascade(&(cascadeParam->faceCascade));
-	cvReleaseHaarClassifierCascade(&(cascadeParam->eyeCascade));
 	cvReleaseMemStorage(&(image->storage));
 }
 
-void cv_detect_and_replace_faces(CascadeStruct* cascadeParam, OpenCVStruct* image) {
+void cv_detect_and_replace_faces(OpenCVStruct* image) {
 	// Iterate through each detected face and replace it with an image
 	for (int i = 0; i < image->faces->total; i++) {
 		CvRect* face = (CvRect*)cvGetSeqElem(image->faces, i);
@@ -790,7 +791,6 @@ void cv_detect_and_replace_faces(CascadeStruct* cascadeParam, OpenCVStruct* imag
 	cvReleaseImage(&(image->frame));
 	cvReleaseImage(&(image->replace));
 	cvReleaseImage(&(image->frameGray));
-	cvReleaseHaarClassifierCascade(&(cascadeParam->faceCascade));
 	cvReleaseMemStorage(&(image->storage));
 }
 
@@ -816,8 +816,12 @@ void write_from_temp_file(int socket) {
 	long imageSize = get_file_size(tempFile);
 	uint8_t* imageData = (uint8_t*)malloc(imageSize);
 	fread(imageData, sizeof(uint8_t), imageSize, tempFile);
+
+	Message* response = format_message(OUTPUT_IMAGE, imageSize, imageData);
+	write_message(socket, response);
+	free((uint8_t*)imageData);
+	free((Message*)response);
 	fclose(tempFile);
-	write_from_memory(socket, imageData, imageSize);
 }
 
 /* 0 on successful read
@@ -911,7 +915,7 @@ Instructions read_message(int socket, uint32_t imgMaxSize) {
 	}
 
 	OperationType op = read_operation(socket);
-	if (op != FACE_DETECT || op != FACE_REPLACE) {
+	if (op != FACE_DETECT && op != FACE_REPLACE) {
 		if (op == INVALID_OP) {
 			send_error_message(socket, INVALID_OPERATION);
 			inst.error = INVALID_OPERATION;
@@ -923,13 +927,13 @@ Instructions read_message(int socket, uint32_t imgMaxSize) {
 			return inst;
 		}
 	}
+	inst.operation = op;
 
 	err = read_data(socket, imgMaxSize);
 	if (err != SUCCESS) {
 		inst.error = err;
 		return inst;
 	}
-	inst.operation = op;
 	return inst;
 }
 
@@ -984,46 +988,53 @@ void close_connection(ClientStruct* c) {
 // 		 read till image size before taking lock?
 void* client_handler(void* c) {
 	ClientStruct* clientInfo = (ClientStruct*)c;
+	bool endRuntime = false;
 	
-	// take lock
-	sem_wait(clientInfo->lock);
-	Instructions inst = read_message(clientInfo->socket, clientInfo->imgMaxSize);
-	if (inst.error != SUCCESS) {
-		close_connection(clientInfo);
-	}
-	OpenCVStruct* image = init_OpenCV_struct();
-	OpenCVStruct* detectImage = load_detect_image(image, clientInfo->cascade);
-	free((OpenCVStruct*) image);
-	if (detectImage->error == true) {
-		send_error_message(clientInfo->socket, IMAGE_LOAD_ERROR);
-		sem_post(clientInfo->lock);
-		close_connection(clientInfo);
-	}
-	else if (!detectImage->faces->total) {
-		send_error_message(clientInfo->socket, IMAGE_NO_FACE);
-		sem_post(clientInfo->lock);
-		close_connection(clientInfo);
-	}
-
-	if (inst.operation == FACE_REPLACE && !detectImage->error) {
-		OpenCVStruct* replaceImage = load_replace_image(clientInfo->cascade, detectImage);
-		if (!replaceImage->replace) {
-			send_error_message(clientInfo->socket, IMAGE_LOAD_ERROR);
-			sem_post(clientInfo->lock);
+	while(!endRuntime) {
+		// take lock
+		sem_wait(clientInfo->lock);
+		Instructions inst = read_message(clientInfo->socket, clientInfo->imgMaxSize);
+		if (inst.error != SUCCESS) {
+			endRuntime = true;
 			close_connection(clientInfo);
 		}
-		else {
-			cv_detect_and_replace_faces(clientInfo->cascade, replaceImage);
+		OpenCVStruct* image = init_OpenCV_struct();
+		OpenCVStruct* detectImage = load_detect_image(image, clientInfo->cascade);
+		if (detectImage->error == true) {
+			endRuntime = true;
+			send_error_message(clientInfo->socket, IMAGE_LOAD_ERROR);
+			close_connection(clientInfo);
 		}
-	}
-	else {
-		cv_detect_faces(clientInfo->cascade, detectImage);
-	}
+		else if (!detectImage->faces->total) {
+			endRuntime = true;
+			send_error_message(clientInfo->socket, IMAGE_NO_FACE);
+			close_connection(clientInfo);
+		}
 
-	write_from_temp_file(clientInfo->socket); 
-	sem_post(clientInfo->lock);
-	// TODO: free malloc'd stuff
-	close_connection(clientInfo);
+		if (inst.operation == FACE_REPLACE && !detectImage->error) {
+			OpenCVStruct* replaceImage = load_replace_image(detectImage);
+			if (!replaceImage->replace) {
+				endRuntime = true;
+				send_error_message(clientInfo->socket, IMAGE_LOAD_ERROR);
+				free((OpenCVStruct*)detectImage);
+				free((OpenCVStruct*)replaceImage);
+				close_connection(clientInfo);
+			}
+			else {
+				cv_detect_and_replace_faces(replaceImage);
+				free((OpenCVStruct*)replaceImage);
+			}
+		}
+		else {
+			cv_detect_faces(clientInfo->cascade, detectImage);
+		}
+
+		write_from_temp_file(clientInfo->socket); 
+		free((OpenCVStruct*) image);
+		sem_post(clientInfo->lock);
+		// TODO: free malloc'd stuff
+	}
+	free((ClientStruct*)c);
 	return NULL;
 }
 
@@ -1067,6 +1078,8 @@ void server_runtime (int fdServer, Arguments* serverArgs, CascadeStruct* cascade
 		pthread_create(&threadID, NULL, client_handler, clientParam);
 		pthread_detach(threadID);
 	}
+	cvReleaseHaarClassifierCascade(&(cascadeParam->faceCascade));
+	cvReleaseHaarClassifierCascade(&(cascadeParam->eyeCascade));
 }
 
 void print_statistics(Statistics stats) {

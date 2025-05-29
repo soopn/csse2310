@@ -20,7 +20,7 @@ uqfacedetect: uqfacedetect.c
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $<
 
 %: %.c
-	$(CC) $(CFLAGS) -o $@ $<
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $<
 
 clean:
 	rm -f *.o

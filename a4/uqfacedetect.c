@@ -37,6 +37,7 @@ const int NUM_STATISTICS = 5;
 const uint32_t MSG_PREFIX = 0x23107231;
 const uint32_t MAX_SIZE = (1UL << 32) - 1; 
 const uint32_t SERVER_HEADER_SIZE = sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t);
+const size_t decimalBase = 10;
 
 // OPEN CV PARAMETERS
 const float haarScaleFactor = 1.1;
@@ -121,6 +122,7 @@ typedef struct { // TODO: might not be all there is
 	int socket;
 	CascadeStruct* cascade; // malloc'd
 	OpenCVStruct* openCVParameters;  // malloc'd
+	uint32_t imgMaxSize;
 	sem_t* lock;
 } ClientStruct;
 
@@ -186,11 +188,11 @@ OperationType read_operation(int socket);
 bool read_to_temp_file(int socket);
 void* client_handler(void* c);
 void print_statistics(Statistics stats);
-ClientStruct* init_client_parameters(int fd, CascadeStruct* cascade, sem_t* lock);
+ClientStruct* init_client_parameters(int fd, CascadeStruct* cascade, sem_t* lock, Arguments* programArgs);
 void server_runtime (int fdServer, Arguments* serverArgs, CascadeStruct* cascadeParam, sem_t* sem);
 void DEBUG_PRINT_MESSAGE(Message* message);
 int read_to_buf(int socket, void* dest, uint32_t len);
-ErrorMessageCodes read_data(int socket);
+ErrorMessageCodes read_data(int socket, uint32_t imgMaxSize);
 void close_connection(ClientStruct* c);
 bool check_open_connection(int socket);
 
@@ -250,7 +252,7 @@ bool is_num(char* inputString) {
 
 bool valid_max_clients(char* input) { 
 	if (!is_num(input)) return false;
-	long buffer = strtol(input, NULL, 32); // magic number
+	long buffer = strtol(input, NULL, decimalBase);
 	if (buffer > MAX_CLIENTS || buffer < 0) {
 		return false;
 	}
@@ -259,10 +261,11 @@ bool valid_max_clients(char* input) {
 
 // TODO: this part i guess
 // 		 use strtoul REF: found from atol
-// 		 magic number
 bool valid_max_size(char* input) {
-	long buffer = strtol(input, NULL, 32); //magic number
-	if (buffer > MAX_SIZE || buffer < 0) return false;
+	long buffer = strtol(input, NULL, decimalBase);
+	if (buffer > MAX_SIZE || buffer < 0) {
+		return false;
+	}
 	return true;	
 }
 
@@ -315,7 +318,7 @@ Arguments* argument_check(int argc, char** argv) {
 		free((Arguments*)args);
 		exit_usage_error();
 	}
-	args->maxSize = strtoul(argv[1], NULL, 32); // 32 bit unsigned long?
+	args->maxSize = strtoul(argv[1], NULL, decimalBase);
 	if (argv[2] != NULL) {
 		args->port = strdup(argv[2]); // malloc'd
 	}
@@ -658,11 +661,12 @@ OpenCVStruct* init_OpenCV_struct() {
 	return temp;
 }
 
-ClientStruct* init_client_parameters(int fd, CascadeStruct* cascade, sem_t* lock) {
+ClientStruct* init_client_parameters(int fd, CascadeStruct* cascade, sem_t* lock, Arguments* programArgs) {
 	ClientStruct* info = (ClientStruct*)malloc(sizeof(ClientStruct));
 	info->socket = fd;
 	info->cascade = cascade;
 	info->openCVParameters = NULL;
+	info->imgMaxSize = programArgs->maxSize;
 	info->lock = lock;
 	return info;
 }
@@ -891,7 +895,7 @@ OperationType read_operation(int socket) {
 	return operation;
 }
 
-Instructions read_message(int socket) {
+Instructions read_message(int socket, uint32_t imgMaxSize) {
 	Instructions inst = {.operation = 0, .error = SUCCESS};
 	ErrorMessageCodes err;
 	err = read_check_prefix(socket);
@@ -920,7 +924,7 @@ Instructions read_message(int socket) {
 		}
 	}
 
-	err = read_data(socket);
+	err = read_data(socket, imgMaxSize);
 	if (err != SUCCESS) {
 		inst.error = err;
 		return inst;
@@ -932,14 +936,21 @@ Instructions read_message(int socket) {
 /* reads image size and checks if is valid
  * reads image data ad stores into temp file if valid
  */
-ErrorMessageCodes read_data(int socket) {
+ErrorMessageCodes read_data(int socket, uint32_t imgMaxSize) {
+	uint32_t max = 0;
+	if (imgMaxSize > 0) {
+		max = imgMaxSize;
+	}
+	else {
+		max = MAX_SIZE;
+	}
 	uint32_t* imageSize = (uint32_t*)calloc(1, sizeof(uint32_t));
 	int result = read_to_buf(socket, imageSize, sizeof(uint32_t));
 	if (result < 0) {
 		free((uint32_t*)imageSize); // TODO
 		return IMAGE_ZERO_BYTES;
 	}
-	if (*imageSize > MAX_SIZE) {
+	if (*imageSize > max) {
 		free((uint32_t*)imageSize);
 		send_error_message(socket, IMAGE_TOO_LARGE);
 		return IMAGE_TOO_LARGE;
@@ -976,7 +987,7 @@ void* client_handler(void* c) {
 	
 	// take lock
 	sem_wait(clientInfo->lock);
-	Instructions inst = read_message(clientInfo->socket);
+	Instructions inst = read_message(clientInfo->socket, clientInfo->imgMaxSize);
 	if (inst.error != SUCCESS) {
 		close_connection(clientInfo);
 	}
@@ -988,7 +999,7 @@ void* client_handler(void* c) {
 		sem_post(clientInfo->lock);
 		close_connection(clientInfo);
 	}
-	else if (!detectImage->faces) {
+	else if (!detectImage->faces->total) {
 		send_error_message(clientInfo->socket, IMAGE_NO_FACE);
 		sem_post(clientInfo->lock);
 		close_connection(clientInfo);
@@ -1049,7 +1060,7 @@ void server_runtime (int fdServer, Arguments* serverArgs, CascadeStruct* cascade
 		*/
 		connections++;
 	
-		ClientStruct* clientParam = init_client_parameters(fd, cascadeParam, sem);
+		ClientStruct* clientParam = init_client_parameters(fd, cascadeParam, sem, serverArgs);
 
 		// threading
 		pthread_t threadID;

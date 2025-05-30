@@ -29,7 +29,7 @@ const char* const outputFileArg = "--outputfilename";
 const char* const outputFileVariation = ">";
 const char* const detectImgArg = "--detectimage";
 const char* const detectImgVariation
-        = "<"; // TODO THESE ARE REDIR NOT VARIATIONS
+        = "<"; 
 
 const char* const emptyString = "";
 const uint32_t imgPrefix = 0x23107231;
@@ -107,6 +107,7 @@ ssize_t send_with_header(int socketFD, const uint8_t* buffer, size_t length);
 void client_runtime(Arguments* args, int socketFD);
 void free_args(Arguments* args);
 void free_message(Message* msg);
+int read_to_buf(int socket, void* dest, uint32_t len);
 
 /* COMMAND LINE ARGUMENTS
  * USAGE: ./uqfaceclient portnum [--replacefilename filename] [--outputfilename
@@ -486,14 +487,14 @@ bool write_img_to_file(int socket, Arguments* args)
     // get file size
     FILE* stream = args->outputFile;
     uint32_t* size = (uint32_t*)malloc(sizeof(uint32_t));
-    if (read(socket, size, sizeof(uint32_t)) < (ssize_t)sizeof(uint32_t)) {
+	if (read_to_buf(socket, size, sizeof(uint32_t)) < 0) {
         free((uint32_t*)size);
         return false;
     }
 
     // store data in buffer
-    uint8_t* imageData = (uint8_t*)malloc(*size);
-    if (read(socket, imageData, *size) < *size) {
+    uint8_t* imageData = (uint8_t*)malloc(*size * sizeof(uint8_t));
+	if (read_to_buf(socket, imageData, *size) < 0) {
         free((uint8_t*)imageData);
         free((uint32_t*)size);
         return false;
@@ -538,6 +539,27 @@ void print_error_message(int socket)
     exit(EXIT_RUNTIME);
 }
 
+int read_to_buf(int socket, void* dest, uint32_t len) {
+	ssize_t result;
+	uint32_t tally = 0;
+	uint8_t* buffer = (uint8_t*)malloc(sizeof(uint8_t));
+	for (uint32_t i = 0 ; i < len ; i++) {
+		result = read(socket, buffer, sizeof(uint8_t));
+		tally += result;
+		if (result == 0) {
+			free((uint8_t*)buffer);
+			return -1;
+		}
+		memcpy((uint8_t*)dest + i, buffer, sizeof(uint8_t));
+	}
+	if (tally < len || tally < 1) {
+		free((uint8_t*)buffer);
+		return -1;
+	}
+	free((uint8_t*)buffer);
+	return 0;
+}
+
 /* read from socket
  *
  * CORRECT FORMAT ==> operation == 2; prefix correct; img size, img content
@@ -549,8 +571,7 @@ void read_message(int socket, Arguments* args)
 {
     // read prefix first
     uint32_t* prefixBuffer = (uint32_t*)malloc(sizeof(uint32_t));
-    if ((read(socket, prefixBuffer, sizeof(uint32_t)))
-            < (ssize_t)sizeof(uint32_t)) {
+	if (read_to_buf(socket, prefixBuffer, sizeof(uint32_t)) < 0) {
         free_args(args);
         communication_error();
     }
@@ -563,7 +584,7 @@ void read_message(int socket, Arguments* args)
 
     // read operation
     uint8_t* opBuffer = (uint8_t*)malloc(sizeof(uint8_t));
-    if (read(socket, opBuffer, sizeof(uint8_t)) < (ssize_t)sizeof(uint8_t)) {
+	if (read_to_buf(socket, opBuffer, sizeof(uint8_t)) < 0) {
         free((uint8_t*)opBuffer);
         free_args(args);
         communication_error();
@@ -634,13 +655,15 @@ void client_runtime(Arguments* args, int socketFD)
             fread(message->replaceImgContent, sizeof(uint8_t),
                     message->replaceImgSize, args->replaceFile);
         }
-        write_message(message, socketFD); // TODO free after this
+        write_message(message, socketFD);
+		free((Message*)message);
         if (detectImage.data) {
             free((uint8_t*)detectImage.data);
         }
     } else { // read from file
         Message* message = format_message(args);
         write_message(message, socketFD);
+		free((Message*)message);
     }
     read_message(socketFD, args);
 }

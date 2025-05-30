@@ -213,6 +213,7 @@ void ignore_sigpipe(void);
 void increment_stat_and_close(ClientStruct* info, Stats identifier);
 bool check_and_do_operation(
         Instructions ins, OpenCVStruct* detectImage, ClientStruct* clientInfo);
+Instructions read_message(int socket, uint32_t imgMaxSize, sem_t* sem);
 
 //---------------------------------------------------------------------------//
 int main(int argc, char** argv)
@@ -228,7 +229,7 @@ int main(int argc, char** argv)
     spawn_signal_handler(stats);
     server_runtime(serverFD, args, cascadeParameters, &lock, stats);
 
-    free((Arguments*)args);
+    clean(args);
     sem_destroy(&lock);
 
     return 0;
@@ -333,6 +334,7 @@ Arguments* argument_check(int argc, char** argv)
     Arguments* args = init_arguments(); // malloc'd
 
     if (argc < 2) {
+        free((Arguments*)args);
         exit_usage_error();
     }
     if (!valid_max_clients(argv[0])) {
@@ -359,7 +361,6 @@ void clean(Arguments* args)
 }
 
 // just to check, each thread will open the file themselves later to adhere to
-// mutex
 void tmp_file_check(Arguments* args)
 {
     FILE* tmp = fopen(tempFileDir, "wrb");
@@ -760,7 +761,7 @@ OperationType read_operation(int socket)
     return operation;
 }
 
-Instructions read_message(int socket, uint32_t imgMaxSize)
+Instructions read_message(int socket, uint32_t imgMaxSize, sem_t* sem)
 {
     Instructions inst = {.operation = 0, .error = SUCCESS};
     ErrorMessageCodes err;
@@ -791,6 +792,7 @@ Instructions read_message(int socket, uint32_t imgMaxSize)
     }
     inst.operation = op;
 
+	sem_wait(sem);
     err = read_data(socket, imgMaxSize);
     if (err != SUCCESS) {
         inst.error = err;
@@ -959,10 +961,9 @@ void* client_handler(void* c)
 
     while (!endRuntime) {
         // take lock
-        sem_wait(clientInfo->lock);
         increment_stats(clientInfo->stats, CONNECTION);
         Instructions inst
-                = read_message(clientInfo->socket, clientInfo->imgMaxSize);
+                = read_message(clientInfo->socket, clientInfo->imgMaxSize, clientInfo->lock);
         if (inst.error != SUCCESS) {
             endRuntime = true;
             increment_stat_and_close(clientInfo, MALFORMED);
@@ -986,7 +987,6 @@ void* client_handler(void* c)
         free((OpenCVStruct*)image);
         increment_stats(clientInfo->stats, COMPLETED);
         sem_post(clientInfo->lock);
-        // TODO: free malloc'd stuff
     }
     free((ClientStruct*)c);
     return NULL;

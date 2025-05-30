@@ -464,7 +464,7 @@ ssize_t write_from_memory(int socket, const uint8_t* memory, size_t length)
 void load_temp_file(uint8_t* fileBuf, uint32_t fileSize)
 {
     FILE* tempFile = fopen(tempFileDir, "wb");
-	fwrite(fileBuf, 1, fileSize, tempFile);
+    fwrite(fileBuf, 1, fileSize, tempFile);
 
     fclose(tempFile);
 }
@@ -541,11 +541,11 @@ int read_to_buf(int socket, void* dest, uint32_t len)
     for (uint32_t i = 0; i < len; i++) {
         result = read(socket, buffer, sizeof(uint8_t));
         if (result < 0) {
-			for(uint32_t j = 0; j < timeout ; j++) {
-				if (read(socket, buffer, sizeof(uint8_t)) > 0) {
-					break;
-				}
-			}
+            for (uint32_t j = 0; j < timeout; j++) {
+                if (read(socket, buffer, sizeof(uint8_t)) > 0) {
+                    break;
+                }
+            }
         }
         memcpy((uint8_t*)dest + i, buffer, 1);
         tally += result;
@@ -927,12 +927,13 @@ bool check_and_do_operation(
 {
     bool endRuntime = false;
     if (inst.operation == FACE_REPLACE && !detectImage->error) {
-		ErrorMessageCodes err = read_data(clientInfo->socket, clientInfo->imgMaxSize);
-		if (err != SUCCESS) {
-			endRuntime = true;
+        ErrorMessageCodes err
+                = read_data(clientInfo->socket, clientInfo->imgMaxSize);
+        if (err != SUCCESS) {
+            endRuntime = true;
             free((OpenCVStruct*)detectImage);
             increment_stat_and_close(clientInfo, MALFORMED);
-		}
+        }
         OpenCVStruct* replaceImage = load_replace_image(detectImage);
         if (!replaceImage->replace) {
             endRuntime = true;

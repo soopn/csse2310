@@ -792,7 +792,7 @@ Instructions read_message(int socket, uint32_t imgMaxSize, sem_t* sem)
     }
     inst.operation = op;
 
-	sem_wait(sem);
+    sem_wait(sem);
     err = read_data(socket, imgMaxSize);
     if (err != SUCCESS) {
         inst.error = err;
@@ -962,8 +962,8 @@ void* client_handler(void* c)
     while (!endRuntime) {
         // take lock
         increment_stats(clientInfo->stats, CONNECTION);
-        Instructions inst
-                = read_message(clientInfo->socket, clientInfo->imgMaxSize, clientInfo->lock);
+        Instructions inst = read_message(
+                clientInfo->socket, clientInfo->imgMaxSize, clientInfo->lock);
         if (inst.error != SUCCESS) {
             endRuntime = true;
             increment_stat_and_close(clientInfo, MALFORMED);

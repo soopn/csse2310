@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <errno.h>
 #include <stdbool.h>
 #include <string.h>
 #include <netdb.h>
@@ -495,7 +494,6 @@ bool write_img_to_file(int socket, Arguments* args)
     // store data in buffer
     uint8_t* imageData = (uint8_t*)malloc(*size);
     if (read(socket, imageData, *size) < *size) {
-		printf("%d\n", errno);
         free((uint8_t*)imageData);
         free((uint32_t*)size);
         return false;

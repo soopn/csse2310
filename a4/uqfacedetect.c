@@ -42,10 +42,12 @@ const char* const responseFileDir
 const uint32_t serverMaxClients = 10000;
 const int serverNumStatistics = 5;
 const uint32_t msgPrefix = 0x23107231;
+const uint32_t varMsgPrefix = 0x31721023;
 const uint32_t serverMaxSize = (1UL << 32) - 1;
 const uint32_t serverHeaderSize
         = sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t);
 const size_t decimalBase = 10;
+const uint32_t timeout = 30;
 
 // OPEN CV PARAMETERS
 const float haarScaleFactor = 1.1;
@@ -441,18 +443,16 @@ uint32_t get_file_size(FILE* file)
     return (uint32_t)size;
 }
 
-ssize_t write_from_memory(int socket, const uint8_t* memory, size_t length) //TODO remove debugs
+ssize_t write_from_memory(int socket, const uint8_t* memory, size_t length)
 {
     size_t total = 0;
 
     while (total < length) {
         ssize_t written = write(socket, memory + total, length - total);
-        if (written < 0) { 
-            printf("WRITE ERROR\n");
+        if (written < 0) {
             break;
         }
         if (written == 0) {
-            printf("UNEXPECTED EOF OR SIGPIPE\n");
             break;
         }
         total += written;
@@ -463,15 +463,10 @@ ssize_t write_from_memory(int socket, const uint8_t* memory, size_t length) //TO
 // writes temp file contents (from buffer) into tempfile
 void load_temp_file(uint8_t* fileBuf, uint32_t fileSize)
 {
-    // semaphone thingy here
+    FILE* tempFile = fopen(tempFileDir, "wb");
+	fwrite(fileBuf, 1, fileSize, tempFile);
 
-    int tempFile = open(tempFileDir, O_WRONLY | O_TRUNC);
-    for (uint32_t i = 0; i < fileSize; i++) {
-        write(tempFile, (uint8_t*)fileBuf + i, 1);
-    }
-
-    // release semaphone
-    close(tempFile);
+    fclose(tempFile);
 }
 
 /* After this go back to sending error messages
@@ -540,23 +535,17 @@ void send_error_message(int socket, ErrorMessageCodes errorCode)
 // returns 0 on successful read, -1 on closing of socket
 int read_to_buf(int socket, void* dest, uint32_t len)
 {
-	printf("%d\n", len);
-	FILE* inputStream = fdopen(socket, "r");
-    uint8_t* buffer = (uint8_t*)malloc(len * sizeof(uint8_t));
-	size_t result = fread(buffer, sizeof(uint8_t), len, inputStream);
-	if (result < len) {
-		return -1;
-	}
-	memcpy(dest, buffer, len);
-	
-	/*
-    size_t result;
+    uint8_t* buffer = (uint8_t*)malloc(sizeof(uint8_t));
+    ssize_t result;
     uint32_t tally = 0;
     for (uint32_t i = 0; i < len; i++) {
-        result = fread(socket, buffer, sizeof(uint8_t));
+        result = read(socket, buffer, sizeof(uint8_t));
         if (result < 0) {
-            free((uint8_t*)buffer);
-            return -1;
+			for(uint32_t j = 0; j < timeout ; j++) {
+				if (read(socket, buffer, sizeof(uint8_t)) > 0) {
+					break;
+				}
+			}
         }
         memcpy((uint8_t*)dest + i, buffer, 1);
         tally += result;
@@ -568,7 +557,6 @@ int read_to_buf(int socket, void* dest, uint32_t len)
     if (tally == 0) {
         return 1;
     }
-	*/
     return 0;
 }
 
@@ -746,7 +734,7 @@ ErrorMessageCodes read_check_prefix(int socket)
         free((uint32_t*)prefBuffer);
         return INVALID_MESSAGE;
     }
-    if (*prefBuffer != msgPrefix) {
+    if (*prefBuffer != msgPrefix && *prefBuffer != varMsgPrefix) {
         free((uint32_t*)prefBuffer);
         return RESPONSE_FILE;
     }
@@ -764,7 +752,6 @@ OperationType read_operation(int socket)
     }
 
     OperationType operation = *opBuffer;
-	printf("Op: %d\n", operation);
     free((uint8_t*)opBuffer);
 
     if (operation != FACE_DETECT && operation != FACE_REPLACE) {
@@ -940,6 +927,12 @@ bool check_and_do_operation(
 {
     bool endRuntime = false;
     if (inst.operation == FACE_REPLACE && !detectImage->error) {
+		ErrorMessageCodes err = read_data(clientInfo->socket, clientInfo->imgMaxSize);
+		if (err != SUCCESS) {
+			endRuntime = true;
+            free((OpenCVStruct*)detectImage);
+            increment_stat_and_close(clientInfo, MALFORMED);
+		}
         OpenCVStruct* replaceImage = load_replace_image(detectImage);
         if (!replaceImage->replace) {
             endRuntime = true;
@@ -949,7 +942,6 @@ bool check_and_do_operation(
             increment_stat_and_close(clientInfo, MALFORMED);
         } else {
             cv_detect_and_replace_faces(replaceImage);
-            free((OpenCVStruct*)replaceImage);
             increment_stats(clientInfo->stats, REPLACE);
         }
     } else {

@@ -441,13 +441,13 @@ uint32_t get_file_size(FILE* file)
     return (uint32_t)size;
 }
 
-ssize_t write_from_memory(int socket, const uint8_t* memory, size_t length)
+ssize_t write_from_memory(int socket, const uint8_t* memory, size_t length) //TODO remove debugs
 {
     size_t total = 0;
 
     while (total < length) {
         ssize_t written = write(socket, memory + total, length - total);
-        if (written < 0) {
+        if (written < 0) { 
             printf("WRITE ERROR\n");
             break;
         }
@@ -540,11 +540,20 @@ void send_error_message(int socket, ErrorMessageCodes errorCode)
 // returns 0 on successful read, -1 on closing of socket
 int read_to_buf(int socket, void* dest, uint32_t len)
 {
-    uint8_t* buffer = (uint8_t*)malloc(sizeof(uint8_t));
-    ssize_t result;
+	printf("%d\n", len);
+	FILE* inputStream = fdopen(socket, "r");
+    uint8_t* buffer = (uint8_t*)malloc(len * sizeof(uint8_t));
+	size_t result = fread(buffer, sizeof(uint8_t), len, inputStream);
+	if (result < len) {
+		return -1;
+	}
+	memcpy(dest, buffer, len);
+	
+	/*
+    size_t result;
     uint32_t tally = 0;
     for (uint32_t i = 0; i < len; i++) {
-        result = read(socket, buffer, sizeof(uint8_t));
+        result = fread(socket, buffer, sizeof(uint8_t));
         if (result < 0) {
             free((uint8_t*)buffer);
             return -1;
@@ -559,6 +568,7 @@ int read_to_buf(int socket, void* dest, uint32_t len)
     if (tally == 0) {
         return 1;
     }
+	*/
     return 0;
 }
 
@@ -754,6 +764,7 @@ OperationType read_operation(int socket)
     }
 
     OperationType operation = *opBuffer;
+	printf("Op: %d\n", operation);
     free((uint8_t*)opBuffer);
 
     if (operation != FACE_DETECT && operation != FACE_REPLACE) {

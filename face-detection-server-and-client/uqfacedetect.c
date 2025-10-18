@@ -65,8 +65,9 @@ const int alphaIndex = 3;
 
 //---------------------------------------------------------------------------//
 
-/* STRUCTS & ENUMS */
-//---------------------------------------------------------------------------//
+/*
+ * Enum to discriminate exit codes
+ */
 typedef enum {
     EXIT_USAGE = 6,
     EXIT_IMAGE_WRITE = 20,
@@ -74,6 +75,9 @@ typedef enum {
     EXIT_PORT = 1
 } ExitStatus;
 
+/**
+ * Enum to discriminate operation codes 
+ */
 typedef enum {
     FACE_DETECT = 0,
     FACE_REPLACE = 1,
@@ -82,6 +86,9 @@ typedef enum {
     INVALID_OP = 4
 } OperationType;
 
+/**
+ * Enum to discriminate message codes 
+ */
 typedef enum {
     INVALID_MESSAGE = 0,
     INVALID_OPERATION = 1,
@@ -93,6 +100,9 @@ typedef enum {
     SUCCESS = 7
 } ErrorMessageCodes;
 
+/**
+ * Enum to distinguish what happened to a thread 
+ */
 typedef enum {
     CONNECTION = 0,
     COMPLETED = 1,
@@ -235,8 +245,6 @@ int main(int argc, char** argv)
     return 0;
 }
 
-/* OTHER FUNCTIONS*/
-//-----------------------------------------------------------------------------//
 void exit_usage_error(void)
 {
     fprintf(stderr, usageErrMsg);
@@ -261,6 +269,9 @@ void exit_port(char* port)
     exit(EXIT_PORT);
 }
 
+/**
+ * Checks if a given string is a number  
+ */
 bool is_num(char* inputString)
 {
     for (int i = 0; i < (int)strlen(inputString); i++) {
@@ -326,6 +337,12 @@ Arguments* init_arguments(void)
     return args;
 }
 
+/**
+ * checks if the program arguments are valid
+ *
+ * @returns Arguments* struct on success 
+ * @exits 6 if unsuccessful
+ */
 Arguments* argument_check(int argc, char** argv)
 {
     has_empty_string(argc, argv);
@@ -360,7 +377,11 @@ void clean(Arguments* args)
     free((Arguments*)args);
 }
 
-// just to check, each thread will open the file themselves later to adhere to
+/**
+ * checks if the temporary file directory can be opened
+ *
+ * @exits 20 if unable
+ */
 void tmp_file_check(Arguments* args)
 {
     FILE* tmp = fopen(tempFileDir, "wrb");
@@ -371,8 +392,13 @@ void tmp_file_check(Arguments* args)
     fclose(tmp); // check if can be closed?
 }
 
+/**
+ * initialises the data required for an operation of OpenCV 
+ *
+ * @args - arguments of the program
+ */
 CascadeStruct* init_cascade_struct(Arguments* args)
-{ // TODO: FREE THIS EVERYWHERE AND AT THE END
+{ 
     CascadeStruct* param = (CascadeStruct*)calloc(1, sizeof(CascadeStruct));
     param->outputFile = NULL;
     param->faceCascade = (CvHaarClassifierCascade*)cvLoad(
@@ -386,6 +412,12 @@ CascadeStruct* init_cascade_struct(Arguments* args)
     return param;
 }
 
+/**
+ * Opens and starts listning on a specified port, or ephemeral port if unspecified 
+ *
+ * @args - arguments of the program
+ * @returns file descriptor of the open port
+ */
 int open_listen(Arguments* args)
 {
     struct addrinfo* ai = 0;
@@ -444,6 +476,15 @@ uint32_t get_file_size(FILE* file)
     return (uint32_t)size;
 }
 
+/**
+ * Writes to the socket from a specified buffer in memory
+ * 
+ * @socket - file descriptor to be written total
+ * @memory - buffer where data is store
+ * @length - length of the data to be written
+ *
+ * @returns total number of bytes written to the socket
+ */ 
 ssize_t write_from_memory(int socket, const uint8_t* memory, size_t length)
 {
     size_t total = 0;
@@ -461,7 +502,12 @@ ssize_t write_from_memory(int socket, const uint8_t* memory, size_t length)
     return total;
 }
 
-// writes temp file contents (from buffer) into tempfile
+/**
+ * writes contents from a buffer into the temp file 
+ *
+ * @fileBuf - buffer containing the data to be written
+ * @fileSize - size of the data 
+ */
 void load_temp_file(uint8_t* fileBuf, uint32_t fileSize)
 {
     FILE* tempFile = fopen(tempFileDir, "wb");
@@ -470,9 +516,14 @@ void load_temp_file(uint8_t* fileBuf, uint32_t fileSize)
     fclose(tempFile);
 }
 
-/* After this go back to sending error messages
- * Server can only send 1 content
- * */
+/**
+ * Formats a message to be sent to the client 
+ *
+ * @operation - type of operation specified by enum OperationType
+ * @length - length of the message
+ * @content - buffer containing the byte stream to be sent
+ * @returns pointer to a Message struct containing the data 
+ */
 Message* format_message(
         OperationType operation, uint32_t length, uint8_t* content)
 {
@@ -485,6 +536,12 @@ Message* format_message(
     return message;
 }
 
+/**
+ * Writes a message to the designated file descriptor
+ *
+ * @socket - file descriptor to be written to
+ * @message - desired message
+ */
 void write_message(int socket, Message* message)
 {
     uint32_t messageSize
@@ -505,7 +562,9 @@ void write_message(int socket, Message* message)
     write(socket, messageBuffer, messageSize);
 }
 
-// IF FIRST 4 BYTES DONT WORK, SEND responsefile over socket as is, no
+/**
+ * Sends a hardcoded response file over the socket 
+ */
 void send_response_file(int socket)
 {
     // read and store response file
@@ -521,6 +580,12 @@ void send_response_file(int socket)
     free((uint8_t*)responseFileContents);
 }
 
+/**
+ * Sends a specified error message
+ * 
+ * @socket - file descriptor to be written to
+ * @errorCode - type of error occured specified by enum ErrorMessageCodes
+ */
 void send_error_message(int socket, ErrorMessageCodes errorCode)
 {
     size_t errorMessageLength = strlen(errorMessageList[errorCode]);
@@ -533,7 +598,13 @@ void send_error_message(int socket, ErrorMessageCodes errorCode)
     free((uint8_t*)buffer);
 }
 
-// returns 0 on successful read, -1 on closing of socket
+/**
+ * Reads a byte stream over the socket to a designated buffer
+ * 
+ * @socket - file descriptor to be read from
+ * @dest - buffer to store byte stream
+ * @len - length of the data 
+ */
 int read_to_buf(int socket, void* dest, uint32_t len)
 {
     uint8_t* buffer = (uint8_t*)malloc(sizeof(uint8_t));
@@ -586,6 +657,12 @@ ClientStruct* init_client_parameters(int fd, CascadeStruct* cascade,
     return info;
 }
 
+/**
+ * Loads an image with OpenCV for face detection 
+ *
+ * @image - initialised OpenCV parameters
+ * @cascadeParam - initialised cascade parameters for OpenCV
+ */
 OpenCVStruct* load_detect_image(
         OpenCVStruct* image, CascadeStruct* cascadeParam)
 {
@@ -614,6 +691,11 @@ OpenCVStruct* load_detect_image(
     return image;
 }
 
+/**
+ * Loads an image with OpenCV for face replacement 
+ *
+ * @image - initialised OpenCV parameters
+ */
 OpenCVStruct* load_replace_image(OpenCVStruct* image)
 {
     image->replace = cvLoadImage(tempFileDir, CV_LOAD_IMAGE_UNCHANGED);
@@ -624,6 +706,9 @@ OpenCVStruct* load_replace_image(OpenCVStruct* image)
     return image;
 }
 
+/**
+ * Detects faces with OpenCV 
+ */
 void cv_detect_faces(CascadeStruct* cascadeParam, OpenCVStruct* image)
 {
     const CvScalar magenta = cvScalar(255, 0, 255, 0);
@@ -670,6 +755,9 @@ void cv_detect_faces(CascadeStruct* cascadeParam, OpenCVStruct* image)
     cvReleaseMemStorage(&(image->storage));
 }
 
+/**
+ * Replaces the faces of a given image
+ */
 void cv_detect_and_replace_faces(OpenCVStruct* image)
 {
     // Iterate through each detected face and replace it with an image
@@ -713,6 +801,9 @@ void cv_detect_and_replace_faces(OpenCVStruct* image)
     cvReleaseMemStorage(&(image->storage));
 }
 
+/**
+ * Writes to the socket from the designated temp file
+ */
 void write_from_temp_file(int socket)
 {
     FILE* tempFile = fopen(tempFileDir, "r");
@@ -727,6 +818,12 @@ void write_from_temp_file(int socket)
     fclose(tempFile);
 }
 
+/**
+ * Reads the prefix of the message to see if it is properly formatted 
+ *
+ * @socket - file descriptor to be read from
+ * @returns integer specified by ErrorMessageCodes
+ */
 ErrorMessageCodes read_check_prefix(int socket)
 {
     uint32_t* prefBuffer = (uint32_t*)malloc(sizeof(uint32_t));
@@ -744,6 +841,9 @@ ErrorMessageCodes read_check_prefix(int socket)
     return SUCCESS;
 }
 
+/**
+ * Reads the operation code from the socket 
+ */
 OperationType read_operation(int socket)
 {
     uint8_t* opBuffer = (uint8_t*)malloc(sizeof(uint8_t));
@@ -761,6 +861,15 @@ OperationType read_operation(int socket)
     return operation;
 }
 
+/**
+ * Reads the message from the socket
+ *
+ * @socket - file descriptor to be read from
+ * @imgMaxSize - max image size allowable by the server 
+ * @sem - semaphore to lock other threads from mutating the temp file 
+ * @returns Instructions on how to move forward with the program including
+ * 	if there is an error
+ */
 Instructions read_message(int socket, uint32_t imgMaxSize, sem_t* sem)
 {
     Instructions inst = {.operation = 0, .error = SUCCESS};
@@ -801,7 +910,9 @@ Instructions read_message(int socket, uint32_t imgMaxSize, sem_t* sem)
     return inst;
 }
 
-/* reads image size and checks if is valid
+
+/**
+ * reads image size and checks if is valid
  * reads image data ad stores into temp file if valid
  */
 ErrorMessageCodes read_data(int socket, uint32_t imgMaxSize)
@@ -850,6 +961,9 @@ void close_connection(ClientStruct* c)
     pthread_exit(NULL);
 }
 
+/**
+ * used to wait for a SIGHUP signal before printing the server statistics 
+ */
 void* signal_handler(void* arg)
 {
     Statistics* data = (Statistics*)arg;
@@ -870,6 +984,9 @@ void sigpipe_handler(int sig)
     sig++;
 }
 
+/**
+ * signal handler to ignore SIGPIPE signal
+ */
 void ignore_sigpipe(void)
 {
     struct sigaction sa;
@@ -880,6 +997,9 @@ void ignore_sigpipe(void)
     sigaction(SIGPIPE, &sa, NULL);
 }
 
+/**
+ * spawns a signal handler thread to watch for SIGHUP
+ */
 void spawn_signal_handler(Statistics* stats)
 { // REF: man pthread_sigmask
     pthread_t signalThread;
@@ -918,12 +1038,24 @@ void increment_stats(Statistics* stat, Stats identifier)
     pthread_mutex_unlock(stat->statLock);
 }
 
+/**
+ * increments the statistics before closing the connection with the client
+ */
 void increment_stat_and_close(ClientStruct* info, Stats identifier)
 {
     increment_stats(info->stats, identifier);
     close_connection(info);
 }
 
+/**
+ * Checks the instructions for the operation type before doing the designated
+ * task
+ *
+ * @inst -  Instructions struct detailing what the client wants
+ * @detectImage - OpenCVStruct containing the specified image to be detected
+ * 		- and image to be replaced with if specified
+ * @clientInfo - ClientInfo struct containing the statistics of the server
+ */
 bool check_and_do_operation(
         Instructions inst, OpenCVStruct* detectImage, ClientStruct* clientInfo)
 {
@@ -954,6 +1086,11 @@ bool check_and_do_operation(
     return endRuntime;
 }
 
+/**
+ * Thread function to handle each client connection 
+ * @c - to be casted to a ClientInfo struct that details all the information
+ *	 required to handle a client
+ */
 void* client_handler(void* c)
 {
     ClientStruct* clientInfo = (ClientStruct*)c;
@@ -992,8 +1129,7 @@ void* client_handler(void* c)
     return NULL;
 }
 
-/* BEHAVIOUR:
- *
+/**
  * spawn thread for each connection
  * ensure mutex of shared data structures, (CvHaarClassifierCascade)
  * if read() error or EOF from client, client handler must close connection,

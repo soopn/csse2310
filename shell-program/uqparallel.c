@@ -28,7 +28,6 @@ typedef enum {
     EXIT_PIPELINE = 78
 } ExitStatus;
 
-/////////////////////////////////////////////////////////////////////////////
 const char* const empty_cmd_msg = "uqparallel: cannot execute empty command.\n";
 const char* const usage_err_msg
         = "Usage: ./uqparallel [--dryrun] [--abort-on-error] [--maxjobs n] "
@@ -47,7 +46,6 @@ const char* const dryrunArg = "dryrun";
 const char* const ptOption = ":::";
 const char* const emptyString = "";
 const char* const optionDelim = "--";
-///////////////////////////////////////////////////////////////////////////////
 
 void sigfunc();
 void cmd_err();
@@ -70,7 +68,6 @@ bool quote_check(char* string);
 void print_array(int size, char* array[]);
 char** append_to_array(char** array1, char** array2);
 pid_t spawn_child_exec(char** cmd);
-pid_t* spawn_child_array(char** cmd, int N);
 void free_array2d(char** array, int size);
 void free_array3d(char*** array, int size1, int size2);
 int wait_children(int numChildren, pid_t* pidArray, char*** execArray);
@@ -225,9 +222,6 @@ int main(int argc, char* argv[])
         }
     }
 
-    /* Actual Executions */
-    //----------------------------------------------------------------------------------------------------------------------------------------//
-    // dryrun
     if (dflg) {
         if (fflg) {
             dryfile(inputFile, pflg, cmdflg, argc, argv, optind);
@@ -297,9 +291,6 @@ int main(int argc, char* argv[])
     exit(exitStatus);
 }
 
-/* Helper Functions */
-//-----------------------------------------------------------------------------------------------------------------------------------------//
-
 void sigfunc()
 {
     endRT = true;
@@ -311,6 +302,12 @@ void cmd_err()
     exit(EXIT_USAGE);
 }
 
+/**
+ * checks if a given string is a number
+ *
+ * @returns integer representation of string if it is
+ * @returns 0 otherwise
+ */
 int isnum(char* string)
 {
     int len = strlen(string);
@@ -323,6 +320,9 @@ int isnum(char* string)
     return atoi(string);
 }
 
+/**
+ * checks for duplicate arguments
+ */
 void arg_dup_check(int* flags)
 {
     for (int i = 0; i < 5; i++) { // number of flags
@@ -333,6 +333,10 @@ void arg_dup_check(int* flags)
     return;
 }
 
+/**
+ * Recalculates the index of the argument pointer after all conditional
+ * arguments have been parsed
+ */
 int option_index_calc(
         int optind, int abflg, int pflg, int dflg, int fflg, int mflg)
 {
@@ -355,6 +359,10 @@ int min(int x, int y)
     return result;
 }
 
+/**
+ * combines an array of strings into a singular string, delimited by 
+ * a whitespace character
+ */
 char* str_combine(int count, char* strs[])
 {
     char* buffer = strdup(strs[0]);
@@ -367,11 +375,14 @@ char* str_combine(int count, char* strs[])
         strcat(buffer, strs[i]);
     }
     return buffer;
-    /*
-    free(buffer);
-    */
 }
 
+/**
+ * checks if the given string is a command or an option 
+ *
+ * @returns true if it is a command false if it is an option
+ * @note: if a string is not an option it will be treated as a command 
+ */
 bool cmd_check(char* cmd, struct option options[])
 { // returns true if is a command, false if is an option
     for (int i = 0; i < 5; i++) { // number of possible options
@@ -405,6 +416,9 @@ bool quote_check(char* string)
     return false;
 }
 
+/**
+ * prints an entire array of strings
+ */
 void print_array(int size, char* array[])
 { // prints array separated by whitespace
     char* buffer;
@@ -441,6 +455,9 @@ char* remove_NL(char* string)
     }
 }
 
+/**
+ * counts the number of jobs needed to be done from a file
+ */
 int count_jobs(FILE* file)
 { // NEEDS TO rewind() BEFORE NEXT fgets() use
     char* line = NULL;
@@ -466,6 +483,11 @@ int count_cmd(char** cmdlines)
     return tally;
 }
 
+/**
+ * removes the arguments from the program arguments 
+ *
+ * @returns array of strings of commands to be done
+ */
 char** remove_arguments(int argc, char* argv[])
 {
     for (int i = 1; i < argc; i++) {
@@ -512,13 +534,6 @@ COMMAND parse_options(int argc, char** argv)
     options.array = realloc(options.array, (sizeof(char*) * options.length));
     options.array[options.length] = NULL;
     return options;
-    /*
-     * TO FREE
-    for (int i = 0 i < options.length ; i++) {
-            free(options.array[i]);
-    }
-    free(options.array);
-    */
 }
 
 // returns pointer new array of strings with pertask args appended to them
@@ -569,6 +584,11 @@ char** append_to_array(char** array1, char** array2)
                                                                                                                             */
 }
 
+/**
+ * forks a child that executes the given command array
+ *
+ * @returns process id of the forked child
+ */
 pid_t spawn_child_exec(char** cmd)
 {
     if (cmd == NULL) {
@@ -591,17 +611,9 @@ pid_t spawn_child_exec(char** cmd)
     return pid;
 }
 
-pid_t* spawn_child_array(char** cmd, int N)
-{ // dont know if this works
-    pid_t* pid = (pid_t*)malloc(N * sizeof(pid_t));
-    for (int i = 0; i < N; i++) {
-        pid[i] = spawn_child_exec(cmd);
-    }
-    return pid;
-}
-
-// parses comands from argv from the optind which points at the last option
-// argument
+/**
+ * parses commands from program arguments
+ */
 COMMAND parse_cmd(int argc, char** argv, int optind)
 {
     char** buffer = (char**)malloc(sizeof(char*) * (argc - 1));
@@ -628,7 +640,13 @@ COMMAND parse_cmd(int argc, char** argv, int optind)
     return command;
 }
 
-// returns array of commands from file
+/**
+ * reads a file and returns an array of string arrays representing the commands
+ *
+ * @file - file pointer to be read from
+ * @jobcount - number of jobs that need to be done
+ * @returns array of commands
+ */
 char*** parse_cmd_file(FILE* file, int jobCount)
 {
     char* buffer = NULL;
@@ -679,6 +697,12 @@ void free_array3d(char*** array, int size1, int size2)
     free(array);
 }
 
+/**
+ * checks the status of the forked children
+ *
+ * @exits 92 if the child was forced to exit due to a signal
+ * @exits 78 if the child was given an empty command
+ */
 int status_check(int status, char* cmd)
 {
     if (WIFEXITED(status)) {
@@ -690,6 +714,13 @@ int status_check(int status, char* cmd)
     return EXIT_EMPTY;
 }
 
+/**
+ * waits on the forked children
+ *
+ * @numChildren - number of forked children
+ * @pidArray - array of child process ids
+ * @execArray - array of commands given to the children
+ */
 int wait_children(int numChildren, pid_t* pidArray, char*** execArray)
 {
     int status;
@@ -711,6 +742,9 @@ int wait_children(int numChildren, pid_t* pidArray, char*** execArray)
 
 /* Working Functions */
 //------------------------------------------------------------------------------------------------------------------------------//
+/**
+ * for when dry run is specified with a file given
+ */
 void dryfile(
         FILE* file, int pflg, int cmdflg, int argc, char** argv, int optind)
 { // rewrite this with append_to_array
@@ -761,6 +795,9 @@ void dryfile(
     return;
 }
 
+/**
+ * for when a dryrun is specified with per task arguments 
+ */
 void drypt(int argc, char** argv, char** ptArgs, int ptArgsCount, int optind,
         int pflg)
 {
@@ -797,6 +834,9 @@ void drypt(int argc, char** argv, char** ptArgs, int ptArgsCount, int optind,
     free(execArray);
 }
 
+/**
+ * for when a dry run is specified with no arguments
+ */
 void drynoarg(int argc, char** argv, int optind)
 {
     char* buffer = NULL;
@@ -947,7 +987,10 @@ void close_pipes(int cmdNum, int** fds)
     }
 }
 
-// from **cmds[] cmd1 --> cmd2 --> cmd3 --> ... --> stdout
+/**
+ * creates a pipeline to chain command outputs to one another 
+ * @note: from **cmds[] cmd1 --> cmd2 --> cmd3 --> ... --> stdout
+ */
 int pipeline(char*** command_vector, int cmdcount)
 { // needs a wait thing and EXIT_PIPELINE if theres something wrong
     int** fds = (int**)malloc(cmdcount * sizeof(int*));
@@ -1003,6 +1046,9 @@ int pipeline(char*** command_vector, int cmdcount)
     return 0;
 }
 
+/**
+ * Base loop for when no argument specified
+ */
 int stdinloop(COMMAND input)
 {
     char* buffer = NULL;
@@ -1050,6 +1096,16 @@ COMMAND populate_pt_args(int argc, char** argv, int index)
     return ptArgs;
 }
 
+/*
+ * runs the per task arguments
+ *
+ * @ptArgs array of per task arguments to be executed
+ * @argc - argument count
+ * @argv - program arguments
+ * @maxJobs -  max allowable jobs by the program
+ *
+ * @returns exit status of the last forked child
+ */
 int run_pertask_args_cmd(char** ptArgs, int ptArgsCount, int argc, char** argv,
         int pflg, int mflg, int maxJobs)
 {

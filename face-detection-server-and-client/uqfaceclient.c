@@ -36,8 +36,9 @@ const uint32_t imgPrefix = 0x23107231;
 
 //---------------------------------------------------------------------------//
 
-/* STRUCTS */
-//---------------------------------------------------------------------------//
+/**
+ * Enum to discriminate between operations 
+ */
 typedef enum {
     FACE_DETECT = 0,
     FACE_REPLACE = 1,
@@ -45,6 +46,9 @@ typedef enum {
     ERROR_MESSAGE = 3
 } OperationType;
 
+/**
+ * Enum to discriminate exit codes
+ */
 typedef enum {
     EXIT_USAGE = 8,
     EXIT_FILE_READ = 19,
@@ -109,12 +113,6 @@ void free_args(Arguments* args);
 void free_message(Message* msg);
 int read_to_buf(int socket, void* dest, uint32_t len);
 
-/* COMMAND LINE ARGUMENTS
- * USAGE: ./uqfaceclient portnum [--replacefilename filename] [--outputfilename
- * filename] [--detectimage filename] portnum must always be the first argument
- * cannot be empty
- */
-
 int main(int argc, char** argv)
 {
     Arguments* programArgs = parse_command_line(argc, argv);
@@ -122,9 +120,6 @@ int main(int argc, char** argv)
     client_runtime(programArgs, socket);
     return 0;
 }
-
-/* OTHER FUNCTIONS*/
-//-----------------------------------------------------------------------------//
 
 void free_args(Arguments* args)
 {
@@ -142,6 +137,9 @@ void free_args(Arguments* args)
     free((Arguments*)args);
 }
 
+/**
+ * Free's the message struct 
+ */
 void free_message(Message* msg)
 {
     free((uint8_t*)msg->detectImgContent);
@@ -175,6 +173,9 @@ void communication_error(void)
     exit(EXIT_COMMUNICATION);
 }
 
+/**
+ * exits the program if the empty string is found
+ */
 void has_empty_string(int argc, char** argv)
 {
     argv++; // remove program name
@@ -187,8 +188,10 @@ void has_empty_string(int argc, char** argv)
     return;
 }
 
-// increment the iteration count and checks if the current iteration exceeds
-// total arguments
+/**
+ * checks if the total number of arguments is expected 
+ * @returns the argument count if the number of arguments is as expected 
+ */
 int increment_and_check(int iteration, int argc)
 {
     iteration++;
@@ -198,6 +201,9 @@ int increment_and_check(int iteration, int argc)
     return iteration;
 }
 
+/**
+ * Checks if the string provided is an realised argument 
+ */
 bool is_argument(char* string)
 {
     if (!strcmp(string, replaceFileArg)) {
@@ -213,7 +219,9 @@ bool is_argument(char* string)
     return false;
 }
 
-// check if given argument has already been initialised in args
+/**
+ * check if given argument has already been initialised in args
+ */
 void duplicate_argument_check(Arguments* args, const char* const argument)
 {
     if (argument == replaceFileArg) {
@@ -344,6 +352,10 @@ Arguments* file_checking(Arguments* args)
     return args;
 }
 
+/**
+ * Connects to a given port
+ * @returns file descriptor of the connected socket
+ */
 int connect_socket(char* port, Arguments* args)
 {
     struct addrinfo* ai = 0;
@@ -368,6 +380,9 @@ int connect_socket(char* port, Arguments* args)
     return fd;
 }
 
+/**
+ * Returns the total size of a file 
+ */
 long get_file_size(FILE* file)
 { // REF: fseek man page
     fseek(file, 0, SEEK_END);
@@ -392,6 +407,10 @@ int determine_operation(Arguments* args)
     return ERROR_MESSAGE;
 }
 
+/**
+ * Formats a message to be sent to the server 
+ * @args - arguments provided from launch
+ */
 Message* format_message(Arguments* args)
 {
     Message* message = init_message();
@@ -424,6 +443,16 @@ Message* format_message(Arguments* args)
     return message;
 }
 
+/**
+ * Writes the data to the socket with 
+ *
+ * @socketFD - socket file descriptor to be written to
+ * @buffer - pointer to a buffer with the data 
+ * @length - size of the message in bytes 
+ *
+ * @returns number of bytes written to the socket upon success
+ * @returns -1 if connection was unexpectedly terminated
+ */
 ssize_t send_with_header(int socketFD, const uint8_t* buffer, size_t length)
 {
     size_t total = 0;
@@ -444,6 +473,12 @@ ssize_t send_with_header(int socketFD, const uint8_t* buffer, size_t length)
     return total;
 }
 
+/**
+ * Populates a given buffer with the formatted message
+ *
+ * @message - message struct to be written
+ * @buffer - buffer to contain the message as a byte stream 
+ */
 void populate_message_buffer(Message* message, uint8_t* buffer)
 {
     size_t offset = 0;
@@ -463,6 +498,9 @@ void populate_message_buffer(Message* message, uint8_t* buffer)
     }
 }
 
+/**
+ * Writes a message to the socket
+ */
 void write_message(Message* message, int socketFD)
 {
     uint8_t* buffer = NULL;
@@ -482,6 +520,12 @@ void write_message(Message* message, int socketFD)
     // free_message(message);
 }
 
+/**
+ * Gets data from the socket and writes to a file 
+ *
+ * @socket - socket to read data from 
+ * @args - arguments for runtime
+ */
 bool write_img_to_file(int socket, Arguments* args)
 {
     // get file size
@@ -512,6 +556,9 @@ bool write_img_to_file(int socket, Arguments* args)
     return true;
 }
 
+/**
+ * converts a byte stream into its string representation
+ */
 char* byte_to_string(uint8_t* input, uint32_t length)
 {
     char* string = (char*)malloc(length + 1);
@@ -539,6 +586,13 @@ void print_error_message(int socket)
     exit(EXIT_RUNTIME);
 }
 
+/**
+ * reads data from a socket into a designated buffer
+ *
+ * @socket - file descriptor to be read from 
+ * @dest - destination buffer
+ * @len - length of the data stream
+ */
 int read_to_buf(int socket, void* dest, uint32_t len) {
 	ssize_t result;
 	uint32_t tally = 0;
@@ -560,12 +614,12 @@ int read_to_buf(int socket, void* dest, uint32_t len) {
 	return 0;
 }
 
-/* read from socket
+/**
+ * Reads a formatted message from a socket
  *
- * CORRECT FORMAT ==> operation == 2; prefix correct; img size, img content
- * 				  ==> operation == 3; prefix correct; err size,
- * err content WRONG FORMAT ==> prefix wrong then print stderr communicationErr;
- * exit 1
+ * @socket - file descriptor to read from
+ * @args - arguments of the program
+ * @exits 1 upon unexpected communication_error
  */
 void read_message(int socket, Arguments* args)
 {
@@ -603,6 +657,11 @@ void read_message(int socket, Arguments* args)
     }
 }
 
+/**
+ * Reads image data from stdin 
+ *
+ * @returns Image struct to represent data
+ */
 Image read_from_stdin(void)
 {
     int offset = 0;
